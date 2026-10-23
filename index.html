@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>ballball - Clone Reconstitution</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="top-header">
+        <div class="brand-badge">
+          <span class="dot"></span>
+          ballball
+        </div>
+        <div class="format-selector" role="group" aria-label="Format de match">
+          <button class="format-btn active" data-format="1">1v1</button>
+          <button class="format-btn" data-format="2">2v2</button>
+          <button class="format-btn" data-format="3">3v3</button>
+          <button class="format-btn" data-format="4">4v4</button>
+          <button class="format-btn" data-format="5">5v5</button>
+        </div>
+        <button id="btn-restart" class="action-btn">Recommencer</button>
+      </header>
+      <canvas id="court"></canvas>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
