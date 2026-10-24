@@ -515,6 +515,11 @@ export class TacticsManager {
         continue;
       }
 
+      // STRICT OWN-GOAL BAN: Never pass directly towards or across the own goal mouth!
+      if (this.isOwnGoalTrajectory(state, ball.x, ball.y, targetX, targetY, side)) {
+        continue;
+      }
+
       // 4. Tactical valuation of the pass
       let score = 200;
 
@@ -661,6 +666,68 @@ export class TacticsManager {
       isClear: isFullyClear,
       isOpenNet
     };
+  }
+
+  /**
+   * Checks whether a trajectory (such as a kick or pass from origin to target)
+   * risks intersecting or deflecting into the team's own goal mouth.
+   */
+  public static isOwnGoalTrajectory(
+    state: GameState,
+    originX: number,
+    originY: number,
+    targetX: number,
+    targetY: number,
+    side: Team
+  ): boolean {
+    const dir = side === 0 ? 1 : -1;
+    const halfW = state.field.width / 2;
+    const halfGoal = state.field.goal / 2;
+    const ownGoalX = -dir * halfW;
+
+    const dx = targetX - originX;
+    const dy = targetY - originY;
+
+    // Must be moving in the direction of the defensive half
+    const isHeadingTowardsOwnGoalSide = dx * dir < 0;
+    if (!isHeadingTowardsOwnGoalSide) return false;
+
+    if (Math.abs(dx) < 1e-4) return false;
+
+    // Raycast intersection with own goal line (x = ownGoalX)
+    const t = (ownGoalX - originX) / dx;
+    if (t <= 0) return false;
+
+    const impactY = originY + dy * t;
+    // Safety buffer of 50px beyond the posts
+    if (Math.abs(impactY) < halfGoal + 50) {
+      return true; // DANGEROUS! Would send ball into own goal!
+    }
+
+    return false;
+  }
+
+  /**
+   * Calculates a safe clearance vector towards the sideline / touchline,
+   * completely eliminating any risk of an own goal.
+   */
+  public static getSafeClearanceTarget(
+    state: GameState,
+    player: Player
+  ): { targetX: number; targetY: number } {
+    const side = player.side;
+    const dir = side === 0 ? 1 : -1;
+    const field = state.field;
+    const halfW = field.width / 2;
+    const halfH = field.height / 2;
+    const ownGoalX = -dir * halfW;
+
+    // Diagonal forward clearance towards the nearest touchline
+    const signY = player.y >= 0 ? 1 : -1;
+    const targetX = ownGoalX + dir * (halfW * 0.7);
+    const targetY = signY * (halfH - 45);
+
+    return { targetX, targetY };
   }
 
   /**

@@ -178,6 +178,15 @@ export class BotAI {
     let actionTargetX = shouldPass && passOption ? passOption.targetX : shotOption.targetX;
     let actionTargetY = shouldPass && passOption ? passOption.targetY : shotOption.targetY;
 
+    // Emergency clearance in own box: clear towards the touchlines, NEVER into own goal
+    const isInOwnBox = Math.abs(player.x - ownGoalX) < 210 && Math.abs(player.y) < halfGoal + 75;
+    if (isInOwnBox) {
+      const clearance = TacticsManager.getSafeClearanceTarget(state, player);
+      actionTargetX = clearance.targetX;
+      actionTargetY = clearance.targetY;
+      shouldPass = false;
+    }
+
     // Add difficulty accuracy noise to shots for Easy
     if (!shouldPass && config.shotAccuracyNoise > 0) {
       const angle = Math.atan2(actionTargetY - perceivedBall.y, actionTargetX - perceivedBall.x);
@@ -254,8 +263,15 @@ export class BotAI {
         targetY = perceivedBall.y - aimDy * approachDist + perceivedBall.vy * 0.16;
 
         // Prevent pushing ball into own goal when caught behind
-        const isBehindBallTrapped = dir === 1 ? perceivedBall.x < player.x - 10 : perceivedBall.x > player.x + 10;
-        if (isBehindBallTrapped && Math.abs(dyToBall) < 45) {
+        const isBehindBallTrapped = dir === 1 ? perceivedBall.x < player.x - 8 : perceivedBall.x > player.x + 8;
+        const isInDefensiveThird = Math.abs(perceivedBall.x - ownGoalX) < halfW * 0.65;
+        if (isBehindBallTrapped && isInDefensiveThird) {
+          // Do NOT run directly through the ball towards own net!
+          // Wrap around safely on the touchline flank to approach from behind the ball
+          const safeWrapY = perceivedBall.y >= 0 ? 1 : -1;
+          targetY = perceivedBall.y + safeWrapY * 80;
+          targetX = perceivedBall.x - dir * 40;
+        } else if (isBehindBallTrapped && Math.abs(dyToBall) < 45) {
           targetY += perceivedBall.y > 0 ? -75 : 75;
         }
       }
@@ -287,12 +303,20 @@ export class BotAI {
       }
 
       // Center Back defensive interception: step up to cut loose ball or deep pass
-      if (role === 'center_back') {
-        const isBallInZone = Math.abs(perceivedBall.x - ownGoalX) < halfW * 0.7;
-        const isBallClose = distToBall < 200;
-        if (isBallInZone && isBallClose) {
-          targetX = perceivedBall.x;
-          targetY = perceivedBall.y;
+      if (role === 'center_back' || role === 'cover_2v2') {
+        const isBallInOurHalf = perceivedBall.x * dir < 60;
+        if (isBallInOurHalf) {
+          // Form a solid wall on the direct shot line between the ball and own goal center
+          const blockDist = Math.max(85, Math.min(220, Math.abs(perceivedBall.x - ownGoalX) * 0.45));
+          targetX = ownGoalX + dir * blockDist;
+          targetY = perceivedBall.y * 0.65;
+        } else {
+          const isBallInZone = Math.abs(perceivedBall.x - ownGoalX) < halfW * 0.7;
+          const isBallClose = distToBall < 200;
+          if (isBallInZone && isBallClose) {
+            targetX = perceivedBall.x;
+            targetY = perceivedBall.y;
+          }
         }
       }
     }
@@ -319,6 +343,25 @@ export class BotAI {
       mem.pivotHoldTicks = 0;
     }
 
+    // Anti-turnover: shield ball when pressed by opponent and no pass is open
+    let nearestOppDist = Infinity;
+    let nearestOpp: Player | null = null;
+    for (const opp of state.players) {
+      if (opp.side !== side && state.active[opp.id]) {
+        const d = vecLength(perceivedBall.x - opp.x, perceivedBall.y - opp.y);
+        if (d < nearestOppDist) {
+          nearestOppDist = d;
+          nearestOpp = opp;
+        }
+      }
+    }
+
+    if (distToBall < 42 && nearestOppDist < 80 && nearestOpp && !shouldPass && !shotOption.isClear) {
+      // Shield the ball: steer away from opponent pressure towards open flank
+      const shieldY = nearestOpp.y > player.y ? -1 : 1;
+      targetY += shieldY * 55;
+    }
+
     // 6. Anti-clumping spatial separation
     const [repelX, repelY] = TacticsManager.computeSeparation(state, player);
     targetX += repelX;
@@ -328,9 +371,19 @@ export class BotAI {
     const kickRange = player.r + state.ball.r + PHYSICS_CONFIG.kickGap + 6;
     let shouldKick = false;
 
-    if (distToBall <= kickRange) {
-      const facingOpponentGoal = dir === 1 ? dxToBall > -16 : dxToBall < 16;
-      const isInOwnBox = Math.abs(player.x - ownGoalX) < 190 && Math.abs(player.y) < halfGoal + 70;
+    // RULE 1: STRICT OWN-GOAL BAN
+    // If kicking the ball right now would send it towards our own net, NEVER KICK!
+    const isOwnGoalRisk = TacticsManager.isOwnGoalTrajectory(
+      state,
+      player.x,
+      player.y,
+      state.ball.x,
+      state.ball.y,
+      side
+    );
+
+    if (distToBall <= kickRange && !isOwnGoalRisk) {
+      const facingOpponentGoal = dir === 1 ? dxToBall > -14 : dxToBall < 14;
 
       // Emergency clearance in own box
       if (isInOwnBox) {
