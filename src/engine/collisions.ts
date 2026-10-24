@@ -125,19 +125,19 @@ export function resolveWallCollisions(
     applyWallBounce(state, entity, isBall, restitution, sign, 0);
   }
 
-  // Goal net cavity containment for the ball
+  // Goal cavity containment for the ball
   if (isBall && Math.abs(entity.x) > halfW) {
     const signX = Math.sign(entity.x);
-    const maxNetX = halfW + field.depth + 14 - entity.r;
-    if (Math.abs(entity.x) > maxNetX) {
-      entity.x = signX * maxNetX;
-      entity.vx *= -0.15; // heavily absorbed by net fabric
-      entity.vy *= 0.7;
+    // Absolute outer limit (allowing up to 45px elastic flex on hard shots)
+    const maxFlexX = halfW + field.depth + 45 - entity.r;
+    if (Math.abs(entity.x) > maxFlexX) {
+      entity.x = signX * maxFlexX;
     }
+    // Top and bottom horizontal frame bars of the goal
     if (Math.abs(entity.y) > halfGoal - entity.r) {
       const signY = Math.sign(entity.y);
       entity.y = signY * (halfGoal - entity.r);
-      entity.vy *= -0.25;
+      entity.vy *= -0.4;
     }
   }
 

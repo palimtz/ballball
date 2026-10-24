@@ -111,6 +111,12 @@ canvas#court {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .skip-replay-btn {
   position: absolute;
   bottom: 28px;
@@ -134,4 +140,85 @@ canvas#court {
   background: rgba(32, 52, 45, 0.98);
   border-color: rgba(255, 255, 255, 0.6);
   transform: translateX(-50%) scale(1.04);
+}
+
+.pause-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 16, 14, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  transition: opacity 0.2s ease;
+}
+
+.pause-overlay[hidden] {
+  display: none;
+}
+
+.pause-card {
+  background: #142420;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 20px;
+  padding: 32px 40px;
+  text-align: center;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  max-width: 380px;
+  width: 90%;
+}
+
+.pause-card h2 {
+  margin: 0 0 8px 0;
+  font-size: 26px;
+  font-weight: 900;
+  color: #ffffff;
+  letter-spacing: 0.5px;
+}
+
+.pause-card p {
+  margin: 0 0 24px 0;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 14px;
+}
+
+.pause-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.btn-primary {
+  background: #39e58c;
+  color: #0b1a15;
+  border: none;
+  border-radius: 24px;
+  padding: 12px 24px;
+  font-weight: 800;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-primary:hover {
+  background: #4ef59f;
+  transform: scale(1.02);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 24px;
+  padding: 11px 24px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.4);
 }

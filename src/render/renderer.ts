@@ -187,7 +187,7 @@ export class GameRenderer {
     halfGoal: number,
     depth: number,
     nodes: Array<{ x: number; y: number }> | undefined,
-    teamColor: string
+    _teamColor: string
   ): void {
     const postX = sign * halfW;
     const topY = -halfGoal;
@@ -209,63 +209,48 @@ export class GameRenderer {
 
     const count = activeNodes.length;
 
-    // 1. Fill net polygon area
+    // 1. Subtle goal turf area (seamless with pitch grass)
     ctx.beginPath();
     ctx.moveTo(postX, topY);
+    ctx.lineTo(activeNodes[0].x, topY);
     for (let i = 0; i < count; i++) {
       ctx.lineTo(activeNodes[i].x, activeNodes[i].y);
     }
     ctx.lineTo(postX, bottomY);
     ctx.closePath();
-
-    ctx.fillStyle = sign === -1 ? 'rgba(189, 172, 255, 0.10)' : 'rgba(255, 161, 136, 0.10)';
+    ctx.fillStyle = '#11221e';
     ctx.fill();
 
-    // 2. Net crosshatch grid cords (horizontal lines)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
-    ctx.lineWidth = 1;
-
+    // 2. Goal mouth threshold line (pitch boundary segment)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    for (let i = 1; i < count - 1; i++) {
-      ctx.moveTo(postX, activeNodes[i].y);
-      ctx.lineTo(activeNodes[i].x, activeNodes[i].y);
-    }
-    ctx.stroke();
-
-    // Vertical depth cords (4 intermediate cords bending dynamically with net bulge)
-    ctx.beginPath();
-    const cols = 4;
-    for (let c = 1; c <= cols; c++) {
-      const frac = c / (cols + 1);
-      ctx.moveTo(postX * (1 - frac) + activeNodes[0].x * frac, topY);
-      for (let i = 0; i < count; i++) {
-        const x = postX * (1 - frac) + activeNodes[i].x * frac;
-        ctx.lineTo(x, activeNodes[i].y);
-      }
-      ctx.lineTo(postX * (1 - frac) + activeNodes[count - 1].x * frac, bottomY);
-    }
-    ctx.stroke();
-
-    // 3. Goal frame lines and back net rope
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    // Top side bar
     ctx.moveTo(postX, topY);
-    ctx.lineTo(activeNodes[0].x, activeNodes[0].y);
-    // Back flexible rope
-    for (let i = 1; i < count; i++) {
-      ctx.lineTo(activeNodes[i].x, activeNodes[i].y);
-    }
-    // Bottom side bar
     ctx.lineTo(postX, bottomY);
     ctx.stroke();
 
-    // Goal line threshold (subtle opening line)
-    ctx.strokeStyle = teamColor;
-    ctx.lineWidth = 3;
+    // 3. Clean white goal frame contour lines (Top bar -> Elastic back contour -> Bottom bar)
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
     ctx.beginPath();
+    // Top horizontal bar outside pitch
     ctx.moveTo(postX, topY);
+    ctx.lineTo(activeNodes[0].x, topY);
+
+    // Smooth elastic curved back contour
+    for (let i = 0; i < count - 1; i++) {
+      const curr = activeNodes[i];
+      const next = activeNodes[i + 1];
+      const midX = (curr.x + next.x) / 2;
+      const midY = (curr.y + next.y) / 2;
+      ctx.quadraticCurveTo(curr.x, curr.y, midX, midY);
+    }
+    ctx.lineTo(activeNodes[count - 1].x, bottomY);
+
+    // Bottom horizontal bar outside pitch
     ctx.lineTo(postX, bottomY);
     ctx.stroke();
   }

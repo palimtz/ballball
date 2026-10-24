@@ -493,41 +493,54 @@ export function updateNetPhysics(state: GameState): void {
       node.y += node.vy * dt;
     }
 
-    // 2. Ball vs Net interaction
-    const isNearGoal =
+    // 2. Ball vs Goal Contour interaction
+    const isInsideGoal =
       sign * ball.x > halfW - ball.r &&
       Math.abs(ball.y) < halfGoal + ball.r;
 
-    if (isNearGoal) {
-      const backDist = sign * (ball.x - (sign * (halfW + depth)));
-      if (backDist > -ball.r * 1.5) {
+    if (isInsideGoal) {
+      // Penetration past the resting back line of the goal
+      const ballLeadingEdge = sign * ball.x + ball.r;
+      const penetration = ballLeadingEdge - (halfW + depth);
+
+      // Only distort if the ball actually reaches and strikes the back line!
+      if (penetration > 0) {
+        const impactSpeed = Math.abs(ball.vx);
+
         for (let i = 0; i < count; i++) {
           const node = nodes[i];
           const distY = Math.abs(node.y - ball.y);
-          const reach = ball.r * 3.0;
+          const reach = ball.r * 2.8;
 
           if (distY < reach) {
             const influence = Math.cos((distY / reach) * (Math.PI / 2));
-            const pushX = Math.max(0, backDist + ball.r) * 1.3;
-
-            // Displace net node outward
-            node.x = node.baseX + sign * (pushX * influence);
-            node.vx += sign * Math.abs(ball.vx) * influence * 0.5;
-            node.vy += ball.vy * influence * 0.25;
-
-            // Absorb ball velocity
-            ball.vx *= (1 - 0.15 * influence);
-            ball.vy *= (1 - 0.12 * influence);
+            const maxBulge = Math.min(42, penetration * 1.3);
+            node.x = node.baseX + sign * (maxBulge * influence);
+            node.vx += sign * impactSpeed * influence * 0.45;
           }
+        }
+
+        // Realistic ball reaction depending on power:
+        if (impactSpeed > 200) {
+          // Hard shot ("en pleine patate"): elastic recoil sends the ball bouncing back out!
+          const reboundFactor = Math.min(0.55, 0.32 + (impactSpeed / 900) * 0.28);
+          ball.vx = -sign * impactSpeed * reboundFactor;
+          ball.vy *= 0.8;
+          ball.x = sign * (halfW + depth + 40 - ball.r);
+        } else {
+          // Soft shot: cushions softly and settles at the back ("se loger au fond des filets")
+          ball.vx *= 0.82;
+          ball.vy *= 0.85;
+          ball.x = sign * Math.min(halfW + depth + 6 - ball.r, sign * ball.x);
         }
       }
 
-      // Inside net cavity: strong friction and settle
+      // Natural turf friction inside the cage (allows rebound to travel back out)
       if (sign * ball.x > halfW) {
-        ball.vx *= Math.exp(-6.5 * dt);
-        ball.vy *= Math.exp(-6.5 * dt);
+        ball.vx *= Math.exp(-1.8 * dt);
+        ball.vy *= Math.exp(-1.8 * dt);
 
-        if (Math.hypot(ball.vx, ball.vy) < 10) {
+        if (Math.hypot(ball.vx, ball.vy) < 8) {
           ball.vx = 0;
           ball.vy = 0;
         }

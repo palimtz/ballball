@@ -20,9 +20,22 @@
           <button class="format-btn" data-format="4">4v4</button>
           <button class="format-btn" data-format="5">5v5</button>
         </div>
-        <button id="btn-restart" class="action-btn">Recommencer</button>
+        <div class="header-actions">
+          <button id="btn-pause" class="action-btn" title="Mettre en pause (Échap ou P)">Pause ⏸</button>
+          <button id="btn-restart" class="action-btn">Recommencer</button>
+        </div>
       </header>
       <button id="btn-skip-replay" class="skip-replay-btn" hidden>Passer le ralenti (V ou Espace)</button>
+      <div id="pause-modal" class="pause-overlay" hidden>
+        <div class="pause-card">
+          <h2>MATCH EN PAUSE</h2>
+          <p>La partie est temporairement suspendue</p>
+          <div class="pause-actions">
+            <button id="btn-resume" class="btn-primary">Reprendre (Échap)</button>
+            <button id="btn-restart-pause" class="btn-secondary">Recommencer la partie</button>
+          </div>
+        </div>
+      </div>
       <canvas id="court"></canvas>
     </div>
     <script type="module" src="/src/main.ts"></script>

@@ -19,6 +19,8 @@ class GameApp {
   private accumulator = 0;
   private currentTeamSize = 1;
   private skipReplayBtn: HTMLButtonElement | null;
+  private pauseModal: HTMLElement | null;
+  private isPaused = false;
 
   constructor() {
     const canvas = document.getElementById('court') as HTMLCanvasElement;
@@ -29,6 +31,7 @@ class GameApp {
     this.soundManager = new SoundManager();
     this.replaySystem = new ReplaySystem();
     this.skipReplayBtn = document.getElementById('btn-skip-replay') as HTMLButtonElement | null;
+    this.pauseModal = document.getElementById('pause-modal');
 
     this.inputManager.setCanvas(canvas);
     this.renderer.resize();
@@ -61,8 +64,31 @@ class GameApp {
       this.resetGame();
     });
 
-    // Press Space or V to skip replay (with 600ms grace period)
+    // Pause button and modal controls
+    const pauseBtn = document.getElementById('btn-pause');
+    pauseBtn?.addEventListener('click', () => {
+      this.togglePause();
+    });
+
+    const resumeBtn = document.getElementById('btn-resume');
+    resumeBtn?.addEventListener('click', () => {
+      this.togglePause(false);
+    });
+
+    const restartPauseBtn = document.getElementById('btn-restart-pause');
+    restartPauseBtn?.addEventListener('click', () => {
+      this.togglePause(false);
+      this.resetGame();
+    });
+
+    // Keydown handlers: Escape/P for Pause, Space/V for Replay skip
     window.addEventListener('keydown', (e) => {
+      if (e.code === 'Escape' || e.code === 'KeyP') {
+        e.preventDefault();
+        this.togglePause();
+        return;
+      }
+
       if (
         this.state.phase === 'replay' &&
         (e.code === 'Space' || e.code === 'KeyV')
@@ -83,6 +109,17 @@ class GameApp {
     });
   }
 
+  private togglePause(forceState?: boolean): void {
+    this.isPaused = forceState !== undefined ? forceState : !this.isPaused;
+    if (this.pauseModal) {
+      this.pauseModal.hidden = !this.isPaused;
+    }
+    if (!this.isPaused) {
+      this.lastTime = performance.now();
+      this.accumulator = 0;
+    }
+  }
+
   private skipReplay(): void {
     this.replaySystem.stopPlayback();
     if (this.skipReplayBtn) this.skipReplayBtn.hidden = true;
@@ -90,12 +127,19 @@ class GameApp {
   }
 
   private resetGame(): void {
+    this.togglePause(false);
     this.replaySystem.clearBuffer();
     if (this.skipReplayBtn) this.skipReplayBtn.hidden = true;
     this.state = createGameState(this.currentTeamSize, true);
   }
 
   private loop(currentTime: number): void {
+    if (this.isPaused) {
+      this.lastTime = currentTime;
+      requestAnimationFrame((t) => this.loop(t));
+      return;
+    }
+
     const deltaMs = Math.min(currentTime - this.lastTime, 100);
     this.lastTime = currentTime;
     const dtSeconds = deltaMs / 1000;
