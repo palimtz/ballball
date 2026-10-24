@@ -18,6 +18,7 @@ class GameApp {
   private lastTime = 0;
   private accumulator = 0;
   private currentTeamSize = 1;
+  private skipReplayBtn: HTMLButtonElement | null;
 
   constructor() {
     const canvas = document.getElementById('court') as HTMLCanvasElement;
@@ -27,6 +28,7 @@ class GameApp {
     this.inputManager = new InputManager();
     this.soundManager = new SoundManager();
     this.replaySystem = new ReplaySystem();
+    this.skipReplayBtn = document.getElementById('btn-skip-replay') as HTMLButtonElement | null;
 
     this.inputManager.setCanvas(canvas);
     this.renderer.resize();
@@ -59,17 +61,23 @@ class GameApp {
       this.resetGame();
     });
 
-    // Press Space or V to skip replay
+    // Press Space or V to skip replay (with 600ms grace period)
     window.addEventListener('keydown', (e) => {
-      if (this.state.phase === 'replay' && (e.code === 'Space' || e.code === 'KeyV')) {
+      if (
+        this.state.phase === 'replay' &&
+        (e.code === 'Space' || e.code === 'KeyV')
+      ) {
         e.preventDefault();
-        this.skipReplay();
+        if (this.replaySystem.canSkip()) {
+          this.skipReplay();
+        }
       }
     });
 
-    // Click canvas during replay to skip
-    window.addEventListener('pointerdown', () => {
-      if (this.state.phase === 'replay') {
+    // Skip replay via dedicated button (with 600ms grace period)
+    this.skipReplayBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.state.phase === 'replay' && this.replaySystem.canSkip()) {
         this.skipReplay();
       }
     });
@@ -77,18 +85,21 @@ class GameApp {
 
   private skipReplay(): void {
     this.replaySystem.stopPlayback();
+    if (this.skipReplayBtn) this.skipReplayBtn.hidden = true;
     finishReplay(this.state);
   }
 
   private resetGame(): void {
     this.replaySystem.clearBuffer();
+    if (this.skipReplayBtn) this.skipReplayBtn.hidden = true;
     this.state = createGameState(this.currentTeamSize, true);
   }
 
   private loop(currentTime: number): void {
     const deltaMs = Math.min(currentTime - this.lastTime, 100);
     this.lastTime = currentTime;
-    this.accumulator += deltaMs / 1000;
+    const dtSeconds = deltaMs / 1000;
+    this.accumulator += dtSeconds;
 
     // Fixed timestep physics update at 120 Hz
     while (this.accumulator >= TICK_DT) {
@@ -99,10 +110,15 @@ class GameApp {
     // Step replay playback during replay phase
     let currentReplayFrame = null;
     if (this.state.phase === 'replay') {
-      currentReplayFrame = this.replaySystem.stepPlayback();
+      if (this.skipReplayBtn) this.skipReplayBtn.hidden = false;
+      currentReplayFrame = this.replaySystem.stepPlayback(dtSeconds);
       if (!currentReplayFrame) {
         // Replay completed, trigger kickoff
-        finishReplay(this.state);
+        this.skipReplay();
+      }
+    } else {
+      if (this.skipReplayBtn && !this.skipReplayBtn.hidden) {
+        this.skipReplayBtn.hidden = true;
       }
     }
 
@@ -120,16 +136,6 @@ class GameApp {
   }
 
   private tick(): void {
-    // When playing, record state into replay buffer at 120 Hz
-    if (this.state.phase === 'playing') {
-      this.replaySystem.recordFrame(this.state);
-    } else if (this.state.phase === 'goal') {
-      // Goal triggered: capture the recent build-up as the replay clip
-      if (!this.replaySystem.isReplaying()) {
-        this.replaySystem.captureGoalClip(this.state.scorer, this.state.lastTouch);
-      }
-    }
-
     // 1. Poll human player input
     const humanInput = this.inputManager.pollInput();
 
@@ -143,6 +149,20 @@ class GameApp {
       } else {
         allInputs.push(humanInput);
       }
+    }
+
+    // When playing or celebrating, record state into replay buffer at 120 Hz
+    if (this.state.phase === 'playing' || this.state.phase === 'goal') {
+      this.replaySystem.recordFrame(this.state);
+    }
+
+    // Capture the replay clip on the last tick of celebration, right before replay starts
+    if (this.state.phase === 'goal' && this.state.phaseTicks === 1) {
+      this.replaySystem.captureGoalClip(this.state.scorer, this.state.lastTouch);
+    }
+    // Fallback if replay phase triggered directly
+    if (this.state.phase === 'replay' && !this.replaySystem.isReplaying()) {
+      this.replaySystem.captureGoalClip(this.state.scorer, this.state.lastTouch);
     }
 
     // 3. Step physics simulation at 120 Hz

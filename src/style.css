@@ -110,3 +110,28 @@ canvas#court {
 .action-btn:hover {
   background: rgba(255, 255, 255, 0.2);
 }
+
+.skip-replay-btn {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(16, 28, 25, 0.92);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 20px;
+  padding: 8px 24px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  z-index: 20;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  transition: all 0.15s ease;
+  letter-spacing: 0.2px;
+}
+
+.skip-replay-btn:hover {
+  background: rgba(32, 52, 45, 0.98);
+  border-color: rgba(255, 255, 255, 0.6);
+  transform: translateX(-50%) scale(1.04);
+}

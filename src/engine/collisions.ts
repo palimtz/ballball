@@ -1,4 +1,4 @@
-import { PHYSICS_CONFIG, SPIN_CONFIG } from './constants';
+import { MATCH_RULES, PHYSICS_CONFIG, SPIN_CONFIG } from './constants';
 import { applyTangentialSpinTransfer } from './spin';
 import { Ball, GameState, Player, StadiumField } from './types';
 
@@ -228,7 +228,7 @@ function triggerGoal(state: GameState, scoringTeam: 0 | 1): void {
   state.score[scoringTeam]++;
   state.scorer = scoringTeam;
   state.phase = 'goal';
-  state.phaseTicks = 90; // 0.75s punchy celebration before replay begins
+  state.phaseTicks = MATCH_RULES.celebration; // 1.5s active celebration
   state.events.push({
     type: 'goal',
     x: state.ball.x,

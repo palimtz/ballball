@@ -93,16 +93,61 @@ export function simulateTick(state: GameState, inputs: PlayerInput[]): void {
   state.tick++;
   state.events = [];
 
-  // Phase: Countdown
+  // Phase: Countdown (players locked at kickoff spots until whistle)
   if (state.phase === 'countdown') {
+    for (const player of state.players) {
+      const spawn = getPlayerSpawn(player.side, player.id, state.teamSize, state.field);
+      player.x = spawn.x;
+      player.y = spawn.y;
+      player.vx = 0;
+      player.vy = 0;
+    }
+    state.ball.x = 0;
+    state.ball.y = 0;
+    state.ball.vx = 0;
+    state.ball.vy = 0;
     if (--state.phaseTicks <= 0) {
       state.phase = 'playing';
+      state.events.push({
+        type: 'hit',
+        x: 0,
+        y: 0,
+        power: 1.5,
+        side: 0
+      });
     }
     return;
   }
 
-  // Phase: Goal Celebration (punchy 0.75s banner before replay)
+  // Phase: Goal Celebration (players can move and celebrate as ball settles in net)
   if (state.phase === 'goal') {
+    for (let i = 0; i < state.players.length; i++) {
+      const player = state.players[i];
+      if (state.active[player.id]) {
+        updatePlayerMovement(player, inputs[i], 1.0, state.events);
+      }
+    }
+    state.ball.vx *= Math.exp(-PHYSICS_CONFIG.ballDrag * TICK_DT * 1.5);
+    state.ball.vy *= Math.exp(-PHYSICS_CONFIG.ballDrag * TICK_DT * 1.5);
+
+    // Continuous sub-stepping for smooth net contact
+    for (let step = 0; step < SUB_STEPS; step++) {
+      for (const player of state.players) {
+        if (!state.active[player.id]) continue;
+        player.x += player.vx * SUB_STEP_DT;
+        player.y += player.vy * SUB_STEP_DT;
+      }
+      state.ball.x += state.ball.vx * SUB_STEP_DT;
+      state.ball.y += state.ball.vy * SUB_STEP_DT;
+
+      for (const player of state.players) {
+        if (state.active[player.id]) {
+          resolveWallCollisions(state, player, false);
+        }
+      }
+      resolveWallCollisions(state, state.ball, true);
+    }
+
     if (--state.phaseTicks <= 0) {
       state.phase = 'replay';
       state.phaseTicks = MATCH_RULES.replay;

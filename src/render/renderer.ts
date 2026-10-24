@@ -80,6 +80,8 @@ export class GameRenderer {
         this.renderGoalBanner(state);
       } else if (state.phase === 'countdown') {
         this.renderCountdownBanner(state);
+      } else if (state.phase === 'finished') {
+        this.renderFinishedBanner(state);
       }
     }
   }
@@ -391,13 +393,18 @@ export class GameRenderer {
 
     ctx.save();
 
+    // Broadcast letterbox bars (cinematic look)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillRect(0, 0, w, 50);
+    ctx.fillRect(0, h - 50, w, 50);
+
     // Top Replay Badge
-    const badgeW = 280;
+    const badgeW = 320;
     const badgeH = 46;
     const badgeX = (w - badgeW) / 2;
-    ctx.fillStyle = 'rgba(12, 22, 19, 0.9)';
+    ctx.fillStyle = 'rgba(12, 22, 19, 0.95)';
     ctx.beginPath();
-    ctx.roundRect(badgeX, 20, badgeW, badgeH, 23);
+    ctx.roundRect(badgeX, 16, badgeW, badgeH, 23);
     ctx.fill();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.lineWidth = 1;
@@ -407,27 +414,40 @@ export class GameRenderer {
     const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.008);
     ctx.fillStyle = `rgba(255, 60, 60, ${pulse})`;
     ctx.beginPath();
-    ctx.arc(badgeX + 32, 20 + badgeH / 2, 6, 0, Math.PI * 2);
+    ctx.arc(badgeX + 28, 16 + badgeH / 2, 6, 0, Math.PI * 2);
     ctx.fill();
 
     // REPLAY text
-    ctx.font = '900 16px sans-serif';
+    ctx.font = '900 15px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'left';
-    ctx.fillText('REPLAY', badgeX + 48, 48);
+    ctx.fillText('REPLAY', badgeX + 44, 45);
 
     // Scorer team
     ctx.font = 'bold 14px sans-serif';
     ctx.fillStyle = teamColor;
-    ctx.fillText(`BUT ${teamName}`, badgeX + 130, 48);
+    ctx.fillText(`BUT ${teamName}`, badgeX + 118, 45);
+
+    // Slow-motion badge when active
+    const isSlowMo = progress >= 0.35 && progress <= 0.85;
+    if (isSlowMo) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+      ctx.beginPath();
+      ctx.roundRect(badgeX + badgeW - 86, 26, 72, 24, 12);
+      ctx.fill();
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillStyle = '#ffd15c';
+      ctx.textAlign = 'center';
+      ctx.fillText('0.5x SLOW', badgeX + badgeW - 50, 42);
+    }
 
     // Bottom replay scrubber bar
-    const barW = Math.min(500, w - 80);
+    const barW = Math.min(520, w - 80);
     const barH = 5;
     const barX = (w - barW) / 2;
-    const barY = h - 65;
+    const barY = h - 68;
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
     ctx.beginPath();
     ctx.roundRect(barX, barY, barW, barH, 2.5);
     ctx.fill();
@@ -437,11 +457,11 @@ export class GameRenderer {
     ctx.roundRect(barX, barY, barW * Math.min(1, Math.max(0, progress)), barH, 2.5);
     ctx.fill();
 
-    // Skip prompt at bottom
-    ctx.font = 'bold 13px sans-serif';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.textAlign = 'center';
-    ctx.fillText('Appuyez sur [Espace] ou [V] pour passer le replay', w / 2, h - 35);
+    // Scrubber current handle dot
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(barX + barW * Math.min(1, Math.max(0, progress)), barY + barH / 2, 5, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
   }
@@ -454,17 +474,21 @@ export class GameRenderer {
     const teamColor = state.scorer === 0 ? '#bdacff' : '#ffa188';
 
     ctx.save();
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-    ctx.fillRect(0, h / 2 - 80, w, 160);
+    // Dramatic goal flash overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.fillRect(0, h / 2 - 90, w, 180);
 
-    ctx.font = '900 48px sans-serif';
+    ctx.font = '900 52px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
-    ctx.fillText('BUT !', w / 2, h / 2 - 5);
+    ctx.shadowColor = teamColor;
+    ctx.shadowBlur = 20;
+    ctx.fillText('BUT !', w / 2, h / 2 - 8);
 
+    ctx.shadowBlur = 0;
     ctx.font = 'bold 24px sans-serif';
     ctx.fillStyle = teamColor;
-    ctx.fillText(`ÉQUIPE ${teamName}`, w / 2, h / 2 + 40);
+    ctx.fillText(`ÉQUIPE ${teamName}`, w / 2, h / 2 + 42);
     ctx.restore();
   }
 
@@ -472,13 +496,107 @@ export class GameRenderer {
     const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;
-    const sec = Math.ceil(state.phaseTicks / 120);
+
+    // 240 ticks total (2.0s) -> divide into 3 seconds count: 3, 2, 1
+    // 240..160 = 3, 160..80 = 2, 80..0 = 1
+    const countNumber = Math.max(1, Math.ceil(state.phaseTicks / 80));
+    const subProgress = (state.phaseTicks % 80) / 80;
 
     ctx.save();
-    ctx.font = '900 64px sans-serif';
+
+    // Translucent countdown disc in center
+    const discRadius = 60;
+    ctx.fillStyle = 'rgba(12, 22, 19, 0.85)';
+    ctx.beginPath();
+    ctx.arc(w / 2, h / 2, discRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Animated countdown ring
+    ctx.strokeStyle = '#39e58c';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(w / 2, h / 2, discRadius - 2, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * subProgress);
+    ctx.stroke();
+
+    // Big countdown number
+    ctx.font = '900 54px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
-    ctx.fillText(sec > 0 ? `${sec}` : 'JOUEZ !', w / 2, h / 2);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${countNumber}`, w / 2, h / 2 - 4);
+
+    // Kickoff label beneath
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText("COUP D'ENVOI", w / 2, h / 2 + discRadius + 28);
+
+    ctx.restore();
+  }
+
+  private renderFinishedBanner(state: GameState): void {
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+
+    ctx.save();
+    // Dim background overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.fillRect(0, 0, w, h);
+
+    const winner =
+      state.score[0] > state.score[1]
+        ? 0
+        : state.score[1] > state.score[0]
+        ? 1
+        : null;
+
+    const winnerName =
+      winner === 0 ? 'LILAS' : winner === 1 ? 'CORAIL' : 'ÉGALITÉ';
+    const winnerColor =
+      winner === 0 ? '#bdacff' : winner === 1 ? '#ffa188' : '#39e58c';
+
+    // Banner card
+    const cardW = Math.min(480, w - 40);
+    const cardH = 220;
+    const cardX = (w - cardW) / 2;
+    const cardY = (h - cardH) / 2;
+
+    ctx.fillStyle = 'rgba(16, 28, 25, 0.95)';
+    this.roundedRectPath(ctx, cardX, cardY, cardW, cardH, 20);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Title
+    ctx.font = '900 30px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.fillText('FIN DU MATCH', w / 2, cardY + 54);
+
+    // Winner line
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillStyle = winnerColor;
+    ctx.fillText(
+      winner !== null ? `VICTOIRE DE L'ÉQUIPE ${winnerName} !` : 'MATCH NUL !',
+      w / 2,
+      cardY + 98
+    );
+
+    // Final score
+    ctx.font = '900 36px monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`${state.score[0]} - ${state.score[1]}`, w / 2, cardY + 146);
+
+    // Subtitle
+    ctx.font = '500 13px sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.fillText('Cliquez sur Recommencer pour rejouer', w / 2, cardY + 188);
+
     ctx.restore();
   }
 

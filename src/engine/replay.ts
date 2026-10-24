@@ -37,11 +37,12 @@ export interface GoalClip {
 }
 
 export class ReplaySystem {
-  private static readonly MAX_BUFFER_FRAMES = 480; // 4 seconds at 120 Hz
+  // Keep up to 600 frames (5 seconds at 120 Hz)
+  private static readonly MAX_BUFFER_FRAMES = 600;
   private ringBuffer: ReplayFrame[] = [];
   private activeClip: GoalClip | null = null;
   private playbackIndex = 0;
-  private playbackSpeed = 1.0; // Playback speed multiplier
+  private startTime = 0;
 
   /**
    * Records a snapshot of the current frame into the sliding ring buffer.
@@ -81,9 +82,9 @@ export class ReplaySystem {
 
   /**
    * Captures the recent action leading to the goal as a replay clip.
+   * Extracts ~360 frames (3 seconds of gameplay).
    */
   public captureGoalClip(scorerTeam: Team, lastTouchPlayerId: number): void {
-    // Capture up to 360 frames (3 seconds) leading to the goal
     const clipFrames = this.ringBuffer.slice(-360);
     if (clipFrames.length === 0) return;
 
@@ -95,6 +96,7 @@ export class ReplaySystem {
       endTick: clipFrames[clipFrames.length - 1].tick
     };
     this.playbackIndex = 0;
+    this.startTime = performance.now();
   }
 
   public isReplaying(): boolean {
@@ -111,10 +113,51 @@ export class ReplaySystem {
   }
 
   /**
-   * Steps the replay playback forward. Returns the active frame, or null when finished.
+   * Minimum grace period before allowing user to skip replay (prevents accidental skips from in-game spam).
    */
-  public stepPlayback(): ReplayFrame | null {
+  public canSkip(): boolean {
+    return performance.now() - this.startTime >= 600; // 600ms grace period
+  }
+
+  /**
+   * Cinematic speed curve:
+   * - 0% to 35%: Build-up / approach at normal fluid speed (0.95x)
+   * - 35% to 45%: Smooth deceleration towards the decisive kick
+   * - 45% to 80%: Dramatic Slow Motion (0.45x - 0.5x) for the kick, ball flight, Magnus curve, and net impact!
+   * - 80% to 100%: Smooth transition out as the ball rests in the net (0.75x)
+   */
+  public getSpeedAtProgress(progress: number): number {
+    if (progress < 0.35) {
+      return 0.95; // Fluid build-up
+    } else if (progress < 0.45) {
+      // Ease down into slow-motion
+      const t = (progress - 0.35) / 0.10;
+      return 0.95 - t * (0.95 - 0.48);
+    } else if (progress < 0.80) {
+      // Slow-motion highlight of the shot, curve, and net hit
+      return 0.48;
+    } else if (progress < 0.92) {
+      // Ease out of slow-motion
+      const t = (progress - 0.80) / 0.12;
+      return 0.48 + t * (0.75 - 0.48);
+    } else {
+      return 0.75;
+    }
+  }
+
+  /**
+   * Advances replay playback based on real delta time in seconds.
+   * Frame rate independent (works identically on 60Hz, 144Hz, 240Hz).
+   */
+  public stepPlayback(dt: number): ReplayFrame | null {
     if (!this.activeClip) return null;
+
+    const progress = this.getProgress();
+    const speed = this.getSpeedAtProgress(progress);
+
+    // dt is in seconds, recorded at 120 frames/sec
+    const framesToAdvance = speed * 120 * dt;
+    this.playbackIndex += framesToAdvance;
 
     const frameIdx = Math.floor(this.playbackIndex);
     if (frameIdx >= this.activeClip.frames.length) {
@@ -122,13 +165,11 @@ export class ReplaySystem {
       return null;
     }
 
-    const frame = this.activeClip.frames[frameIdx];
-    this.playbackIndex += this.playbackSpeed;
-    return frame;
+    return this.activeClip.frames[frameIdx];
   }
 
   /**
-   * Gets the current frame without advancing playback.
+   * Gets current frame without advancing.
    */
   public getCurrentFrame(): ReplayFrame | null {
     if (!this.activeClip) return null;
