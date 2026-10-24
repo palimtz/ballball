@@ -23,6 +23,12 @@ export interface PassOption {
   receiverSeparation: number; // Distance from receiver to nearest opponent
 }
 
+export interface InterceptOpportunity {
+  playerId: number;
+  interceptPoint: { x: number; y: number };
+  timeToReach: number;
+}
+
 export interface ShotOption {
   targetX: number;
   targetY: number;
@@ -152,6 +158,7 @@ export class TacticsManager {
 
   /**
    * Identifies the primary presser: the single best-positioned player to challenge the ball.
+   * If the ball is loose within 160px of any player, that player attacks immediately with zero hesitation.
    */
   public static getPrimaryPresser(state: GameState, side: Team): number {
     const ball = state.ball;
@@ -175,15 +182,18 @@ export class TacticsManager {
       const isDeepest = Math.abs(p.x - ownGoalX) < 140;
 
       // In 3v3+, the goalkeeper only steps up to press if the ball is within their defensive danger zone
-      if (state.teamSize >= 3 && isDeepest && ballDistToOwnGoal > 280) {
+      if (state.teamSize >= 3 && isDeepest && ballDistToOwnGoal > 240) {
         continue;
       }
 
-      // Penalty if ball is behind player relative to attacking direction
-      const isBehind = (ball.x - p.x) * dir < -15;
-      const behindPenalty = isBehind ? 110 : 0;
+      // No behind penalty if player is close to the ball (< 160px) to prevent hesitation in triangles
+      let behindPenalty = 0;
+      if (dist > 160) {
+        const isBehind = (ball.x - p.x) * dir < -15;
+        if (isBehind) behindPenalty = 75;
+      }
 
-      const score = dist + behindPenalty + (isDeepest && state.teamSize >= 3 ? 150 : 0);
+      const score = dist + behindPenalty + (isDeepest && state.teamSize >= 3 ? 160 : 0);
       if (score < minScore) {
         minScore = score;
         bestId = p.id;
@@ -191,6 +201,85 @@ export class TacticsManager {
     }
 
     return bestId;
+  }
+
+  /**
+   * Detects if a ball in flight is headed towards a teammate's sector,
+   * even if the pass was imperfect or off-target, prompting the intended
+   * receiver to actively step up and meet the ball ("aller à la rencontre de la passe").
+   */
+  public static getPassReceiverOrInterception(
+    state: GameState,
+    side: Team
+  ): InterceptOpportunity | null {
+    const ball = state.ball;
+    const ballSpeed = Math.hypot(ball.vx, ball.vy);
+
+    // Ball must be in active motion
+    if (ballSpeed < 85) return null;
+
+    const teammates = state.players.filter(
+      (p) => p.side === side && state.active[p.id]
+    );
+    if (teammates.length === 0) return null;
+
+    const dirVx = ball.vx / ballSpeed;
+    const dirVy = ball.vy / ballSpeed;
+
+    let bestCandidate: InterceptOpportunity | null = null;
+    let minScore = Infinity;
+
+    for (const p of teammates) {
+      // Don't target the kicker who just struck the ball if it is moving away from them
+      if (state.lastKick === p.id && ballSpeed > 200) {
+        const dot = (p.x - ball.x) * dirVx + (p.y - ball.y) * dirVy;
+        if (dot < 0) continue;
+      }
+
+      // Goalkeeper in 3v3+ stays in net on crosses or through-balls
+      const halfW = state.field.width / 2;
+      const ownGoalX = side === 0 ? -halfW : halfW;
+      const isKeeperInNet = Math.abs(p.x - ownGoalX) < 100;
+      if (isKeeperInNet && state.teamSize >= 3) {
+        continue;
+      }
+
+      // Project player onto ball trajectory line
+      const toPX = p.x - ball.x;
+      const toPY = p.y - ball.y;
+      const proj = toPX * dirVx + toPY * dirVy;
+
+      // Ball must be heading generally towards or alongside the player
+      if (proj < 5) continue;
+
+      // Projected intercept point on ball ray
+      const intX = ball.x + dirVx * proj;
+      const intY = ball.y + dirVy * proj;
+
+      const perpDist = vecLength(p.x - intX, p.y - intY);
+
+      // Must be within realistic corridor of the pass (up to 260px)
+      if (perpDist > 260) continue;
+
+      const timeBall = proj / ballSpeed;
+      const playerSpeed = 280;
+      const timePlayer = perpDist / playerSpeed;
+
+      // Player must be able to reach the intercept point around or before the ball arrives
+      if (timePlayer <= timeBall + 0.5) {
+        const score = perpDist + Math.abs(timePlayer - timeBall) * 90;
+        if (score < minScore) {
+          minScore = score;
+          bestCandidate = {
+            playerId: p.id,
+            interceptPoint: { x: intX, y: intY },
+            timeToReach: timePlayer
+          };
+        }
+      }
+    }
+
+    return bestCandidate;
   }
 
   /**
@@ -332,7 +421,25 @@ export class TacticsManager {
       const isSecondPost = (state.ball.y > 0 && cy < 0) || (state.ball.y < 0 && cy > 0);
       const postBonus = isSecondPost ? 80 : 0;
 
-      const score = minOppDist + postBonus;
+      // Ensure open passing lane from current ball to striker ("se rendre disponible")
+      let isLaneClear = true;
+      for (const opp of opponents) {
+        const laneDist = pointToSegmentDistance(
+          opp.x,
+          opp.y,
+          state.ball.x,
+          state.ball.y,
+          cx,
+          cy
+        );
+        if (laneDist < opp.r + 32) {
+          isLaneClear = false;
+          break;
+        }
+      }
+      const laneScore = isLaneClear ? 140 : -90;
+
+      const score = minOppDist + postBonus + laneScore;
       if (score > maxClearance) {
         maxClearance = score;
         bestPocket = { x: cx, y: cy };
@@ -558,6 +665,7 @@ export class TacticsManager {
 
   /**
    * Spatial boids repulsion to prevent crowding and preserve formation spacing.
+   * Damped near the ball so teammates never push each other away from contesting the ball.
    */
   public static computeSeparation(
     state: GameState,
@@ -566,6 +674,16 @@ export class TacticsManager {
     let repelX = 0;
     let repelY = 0;
     const minDistance = 135;
+
+    // Dampen separation when near the ball!
+    // When a player is fighting for the ball, they should NOT be pushed away by teammates!
+    const distToBall = vecLength(player.x - state.ball.x, player.y - state.ball.y);
+    const ballDamping = Math.min(1, Math.max(0, (distToBall - 45) / 120));
+
+    // Inside immediate ball vicinity: 0 repulsion to prevent dead triangles!
+    if (ballDamping <= 0.05) {
+      return [0, 0];
+    }
 
     for (const other of state.players) {
       if (other.id === player.id || !state.active[other.id]) continue;
@@ -577,9 +695,10 @@ export class TacticsManager {
       if (dist < minDistance && dist > 0) {
         const strength =
           ((minDistance - dist) / minDistance) *
-          (other.side === player.side ? 1.7 : 0.9);
-        repelX += (dx / dist) * strength * 240;
-        repelY += (dy / dist) * strength * 240;
+          (other.side === player.side ? 1.5 : 0.8) *
+          ballDamping;
+        repelX += (dx / dist) * strength * 220;
+        repelY += (dy / dist) * strength * 220;
       }
     }
 

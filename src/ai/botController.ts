@@ -53,6 +53,7 @@ interface BotMemory {
   ballHistory: Array<{ tick: number; x: number; y: number; vx: number; vy: number }>;
   pivotHoldTicks: number;
   isSweeperRushing: boolean;
+  passAndMoveTicks: number;
   assignedRole: TacticalRole;
 }
 
@@ -87,6 +88,7 @@ export class BotAI {
         ballHistory: [],
         pivotHoldTicks: 0,
         isSweeperRushing: false,
+        passAndMoveTicks: 0,
         assignedRole: 'duelist'
       };
       this.botMemories.set(playerId, mem);
@@ -106,6 +108,7 @@ export class BotAI {
     const mem = this.getMemory(player.id);
 
     // 1. Update ball perception history for reaction delay in Easy/Medium
+    mem.passAndMoveTicks = Math.max(0, mem.passAndMoveTicks - 1);
     mem.ballHistory.push({
       tick: state.tick,
       x: state.ball.x,
@@ -158,27 +161,17 @@ export class BotAI {
       config.receiverMarkingThreshold
     );
 
-    // Decide if passing or shooting
+    // Decide if passing or shooting (Tiki-taka circulation)
     let shouldPass = false;
     if (passOption !== null) {
-      // Striker prioritizes goals unless an open-net cross/through-ball is overwhelmingly better
-      if (role === 'striker') {
-        shouldPass = !shotOption.isClear && passOption.score > shotOption.score + 180;
-      }
-      // Wingers prioritize crosses from the wing
-      else if (role === 'left_winger' || role === 'right_winger') {
-        const isInCrossingPocket = Math.abs(perceivedBall.x - oppGoalX) < 320 && Math.abs(perceivedBall.y) > 110;
-        shouldPass = isInCrossingPocket ? passOption.isCross || !shotOption.isClear : passOption.score > shotOption.score;
-      }
-      // Center backs and midfielders prioritize safe distribution (relance)
-      else if (role === 'center_back' || role === 'midfielder') {
-        shouldPass = true;
-      }
-      // 2v2 Presser passes if teammate is in open space
-      else if (role === 'presser_2v2') {
-        shouldPass = passOption.score > shotOption.score || !shotOption.isClear;
+      if (shotOption.isOpenNet && Math.abs(oppGoalX - player.x) < 280) {
+        shouldPass = false; // Tap-in into empty net
+      } else if (role === 'striker') {
+        // Striker shoots if open shot, otherwise sets up teammates or plays one-two
+        shouldPass = !shotOption.isClear || passOption.score > shotOption.score + 100;
       } else {
-        shouldPass = passOption.score > shotOption.score || !shotOption.isClear;
+        // Wingers, midfielders, defenders, and 2v2 pressers favor fluid passing
+        shouldPass = passOption.score >= shotOption.score - 50;
       }
     }
 
@@ -198,52 +191,73 @@ export class BotAI {
     let targetX = 0;
     let targetY = 0;
 
-    // Check if Goalkeeper should execute a Sweeper Rush ("Sortie Libéro")
+    // A. Check if a pass or loose ball is traveling towards this player's zone (imperfect pass reception)
+    const interceptOpp = TacticsManager.getPassReceiverOrInterception(state, side);
+    const isTargetReceiver = interceptOpp !== null && interceptOpp.playerId === player.id;
+
+    // B. Check Goalkeeper Sweeper vs Goal-Guarding
     if (role === 'sweeper_keeper') {
       const isBallInDefHalf = perceivedBall.x * dir < 60;
-      const isBallHeadingToGoal = dir === 1 ? perceivedBall.vx < -60 : perceivedBall.vx > 60;
-      const distKeeperToBall = vecLength(perceivedBall.x - player.x, perceivedBall.y - player.y);
-
-      // Find closest opponent to ball
-      let minOppDistToBall = Infinity;
+      let closestOppDist = Infinity;
       for (const opp of state.players) {
         if (opp.side !== side && state.active[opp.id]) {
           const d = vecLength(perceivedBall.x - opp.x, perceivedBall.y - opp.y);
-          if (d < minOppDistToBall) minOppDistToBall = d;
+          if (d < closestOppDist) closestOppDist = d;
         }
       }
 
-      // Sweeper trigger: ball loose in own half and keeper can beat the attacker to it
-      const canBeatAttacker = distKeeperToBall < minOppDistToBall - 30;
-      if (
-        isBallInDefHalf &&
-        (isBallHeadingToGoal || canBeatAttacker) &&
-        distKeeperToBall < 380 * config.sweeperRushAggressiveness
-      ) {
-        mem.isSweeperRushing = true;
-      } else if (distKeeperToBall > 420 || perceivedBall.x * dir > 80) {
+      const isOpponentAtBall = closestOppDist < 140;
+      const isDangerousShot = dir === 1 ? perceivedBall.vx < -130 : perceivedBall.vx > 130;
+
+      // In defensive phase (opponent possesses ball in our half) or on incoming shot:
+      // GOALKEEPER MUST REMAIN IN GOAL! NEVER RUSH OUT!
+      if ((isBallInDefHalf && isOpponentAtBall) || isDangerousShot) {
         mem.isSweeperRushing = false;
+      } else {
+        // Sweeper rush ONLY on loose long through-balls where keeper gets there first by a wide margin
+        const distKeeperToBall = vecLength(perceivedBall.x - player.x, perceivedBall.y - player.y);
+        const isBackPass =
+          state.lastTouch !== null &&
+          state.players[state.lastTouch]?.side === side &&
+          perceivedBall.vx * dir < -40;
+        const canEasilyBeatOpp = distKeeperToBall < closestOppDist - 80;
+
+        if (
+          isBallInDefHalf &&
+          !isOpponentAtBall &&
+          (isBackPass || (canEasilyBeatOpp && distKeeperToBall < 300 * config.sweeperRushAggressiveness))
+        ) {
+          mem.isSweeperRushing = true;
+        } else {
+          mem.isSweeperRushing = false;
+        }
       }
     } else {
       mem.isSweeperRushing = false;
     }
 
     // Role-specific movement
-    if (isPrimaryPresser || role === 'duelist' || mem.isSweeperRushing) {
-      // Position behind ball relative to action target
-      const [aimDx, aimDy] = normalizeVec(
-        actionTargetX - perceivedBall.x,
-        actionTargetY - perceivedBall.y
-      );
+    if (isPrimaryPresser || isTargetReceiver || role === 'duelist' || mem.isSweeperRushing) {
+      if (isTargetReceiver && interceptOpp) {
+        // Actively step up to meet the pass at the intercept point ("aller à la rencontre de la balle")
+        targetX = interceptOpp.interceptPoint.x;
+        targetY = interceptOpp.interceptPoint.y;
+      } else {
+        // Position behind ball relative to action target
+        const [aimDx, aimDy] = normalizeVec(
+          actionTargetX - perceivedBall.x,
+          actionTargetY - perceivedBall.y
+        );
 
-      const approachDist = 26;
-      targetX = perceivedBall.x - aimDx * approachDist + perceivedBall.vx * 0.16;
-      targetY = perceivedBall.y - aimDy * approachDist + perceivedBall.vy * 0.16;
+        const approachDist = 26;
+        targetX = perceivedBall.x - aimDx * approachDist + perceivedBall.vx * 0.16;
+        targetY = perceivedBall.y - aimDy * approachDist + perceivedBall.vy * 0.16;
 
-      // Prevent pushing ball into own goal when caught behind
-      const isBehindBallTrapped = dir === 1 ? perceivedBall.x < player.x - 10 : perceivedBall.x > player.x + 10;
-      if (isBehindBallTrapped && Math.abs(dyToBall) < 45) {
-        targetY += perceivedBall.y > 0 ? -75 : 75;
+        // Prevent pushing ball into own goal when caught behind
+        const isBehindBallTrapped = dir === 1 ? perceivedBall.x < player.x - 10 : perceivedBall.x > player.x + 10;
+        if (isBehindBallTrapped && Math.abs(dyToBall) < 45) {
+          targetY += perceivedBall.y > 0 ? -75 : 75;
+        }
       }
     } else {
       // Off-ball role positioning
@@ -251,13 +265,24 @@ export class BotAI {
       targetX = anchor.x;
       targetY = anchor.y;
 
-      // Sweeper Keeper shot stopping line
+      // Pass & Move run (Give-and-go / Une-deux): surge forward into space to receive return pass
+      if (mem.passAndMoveTicks > 0) {
+        targetX += dir * 180;
+        targetY += targetY > 0 ? -25 : 25;
+      }
+
+      // Sweeper Keeper shot stopping line on goal line
       if (role === 'sweeper_keeper') {
-        const isDangerousShot = dir === 1 ? perceivedBall.vx < -140 : perceivedBall.vx > 140;
+        const isDangerousShot = dir === 1 ? perceivedBall.vx < -130 : perceivedBall.vx > 130;
         if (isDangerousShot) {
           const timeToLine = Math.abs((ownGoalX - perceivedBall.x) / perceivedBall.vx);
           const interceptY = perceivedBall.y + perceivedBall.vy * timeToLine;
+          targetX = ownGoalX + dir * 36;
           targetY = Math.max(-halfGoal + 18, Math.min(halfGoal - 18, interceptY));
+        } else if (Math.abs(perceivedBall.x - ownGoalX) < halfW * 0.5) {
+          // Ball in our defensive half: position strictly on goal line
+          targetX = ownGoalX + dir * 36;
+          targetY = Math.max(-halfGoal + 20, Math.min(halfGoal - 20, perceivedBall.y * 0.55));
         }
       }
 
@@ -322,6 +347,10 @@ export class BotAI {
       // Clean pass or shot
       else if (facingOpponentGoal || shouldPass) {
         shouldKick = true;
+      }
+
+      if (shouldKick && shouldPass) {
+        mem.passAndMoveTicks = 55; // Pass & Move run into space (une-deux)
       }
     }
 
