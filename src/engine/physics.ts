@@ -128,8 +128,9 @@ export function simulateTick(state: GameState, inputs: PlayerInput[]): void {
         updatePlayerMovement(player, inputs[i], 1.0, state.events);
       }
     }
-    state.ball.vx *= Math.exp(-PHYSICS_CONFIG.ballDrag * TICK_DT * 1.5);
-    state.ball.vy *= Math.exp(-PHYSICS_CONFIG.ballDrag * TICK_DT * 1.5);
+    // Natural ball aerodynamics during celebration
+    state.ball.vx *= Math.exp(-PHYSICS_CONFIG.ballDrag * TICK_DT);
+    state.ball.vy *= Math.exp(-PHYSICS_CONFIG.ballDrag * TICK_DT);
 
     // Continuous sub-stepping for smooth net contact
     for (let step = 0; step < SUB_STEPS; step++) {
@@ -444,7 +445,8 @@ export function resetForKickoff(state: GameState): void {
 }
 
 /**
- * Updates dynamic goal net simulation with spring-mass tension, damping, and ball interaction.
+ * Updates dynamic goal contour simulation with elastic catenary tension,
+ * realistic harmonic ripples, and power-dependent rebound.
  */
 export function updateNetPhysics(state: GameState): void {
   const nets = state.nets;
@@ -457,9 +459,10 @@ export function updateNetPhysics(state: GameState): void {
   const depth = field.depth;
 
   const dt = TICK_DT;
-  const springK = 420;
-  const neighborK = 240;
-  const damping = 0.88;
+  // Natural harmonic wave resonance: lower damping allows visible ripples to propagate
+  const springK = 320;
+  const neighborK = 180;
+  const damping = 0.955;
 
   const netSides: Array<{ nodes: NetNode[]; sign: number }> = [
     { nodes: nets.left, sign: -1 },
@@ -503,43 +506,46 @@ export function updateNetPhysics(state: GameState): void {
       const ballLeadingEdge = sign * ball.x + ball.r;
       const penetration = ballLeadingEdge - (halfW + depth);
 
-      // Only distort if the ball actually reaches and strikes the back line!
-      if (penetration > 0) {
+      // Only apply impact impulse when the ball is moving towards the net!
+      const isMovingTowardsNet = sign * ball.vx > 0;
+
+      if (penetration > 0 && isMovingTowardsNet) {
         const impactSpeed = Math.abs(ball.vx);
 
         for (let i = 0; i < count; i++) {
           const node = nodes[i];
           const distY = Math.abs(node.y - ball.y);
-          const reach = ball.r * 2.8;
+          const reach = ball.r * 3.2;
 
           if (distY < reach) {
             const influence = Math.cos((distY / reach) * (Math.PI / 2));
-            const maxBulge = Math.min(42, penetration * 1.3);
+            const maxBulge = Math.min(50, penetration * 1.4);
             node.x = node.baseX + sign * (maxBulge * influence);
-            node.vx += sign * impactSpeed * influence * 0.45;
+            node.vx += sign * impactSpeed * influence * 0.75;
           }
         }
 
         // Realistic ball reaction depending on power:
-        if (impactSpeed > 200) {
-          // Hard shot ("en pleine patate"): elastic recoil sends the ball bouncing back out!
-          const reboundFactor = Math.min(0.55, 0.32 + (impactSpeed / 900) * 0.28);
-          ball.vx = -sign * impactSpeed * reboundFactor;
-          ball.vy *= 0.8;
-          ball.x = sign * (halfW + depth + 40 - ball.r);
+        if (impactSpeed > 180) {
+          // Hard shot ("en pleine patate"): elastic trampoline recoil sends the ball bouncing back out!
+          const reboundSpeed = Math.min(540, impactSpeed * (0.45 + (impactSpeed / 850) * 0.35));
+          ball.vx = -sign * reboundSpeed;
+          ball.vy *= 0.85;
+          // Position ball slightly in front of the line so it is immediately free to fly out
+          ball.x = sign * (halfW + depth - ball.r - 2);
         } else {
           // Soft shot: cushions softly and settles at the back ("se loger au fond des filets")
-          ball.vx *= 0.82;
-          ball.vy *= 0.85;
-          ball.x = sign * Math.min(halfW + depth + 6 - ball.r, sign * ball.x);
+          ball.vx = -sign * impactSpeed * 0.15;
+          ball.vy *= 0.6;
+          ball.x = sign * (halfW + depth - ball.r);
         }
       }
 
-      // Natural turf friction inside the cage (allows rebound to travel back out)
-      if (sign * ball.x > halfW) {
-        ball.vx *= Math.exp(-1.8 * dt);
-        ball.vy *= Math.exp(-1.8 * dt);
-
+      // If the ball has already rebounded, do NOT trap it; let it fly freely back out!
+      // Only apply gentle turf drag when its speed drops below 60 px/s
+      if (Math.hypot(ball.vx, ball.vy) < 60) {
+        ball.vx *= Math.exp(-2.0 * dt);
+        ball.vy *= Math.exp(-2.0 * dt);
         if (Math.hypot(ball.vx, ball.vy) < 8) {
           ball.vx = 0;
           ball.vy = 0;

@@ -7,7 +7,7 @@ import { finishReplay, simulateTick } from './engine/physics';
 import { ReplaySystem } from './engine/replay';
 import { GameState, PlayerInput } from './engine/types';
 import { InputManager } from './input/inputManager';
-import { GameRenderer } from './render/renderer';
+import { CameraMode, GameRenderer } from './render/renderer';
 
 class GameApp {
   private renderer: GameRenderer;
@@ -64,6 +64,20 @@ class GameApp {
       this.resetGame();
     });
 
+    // Camera mode button & label
+    const cameraBtn = document.getElementById('btn-camera') as HTMLButtonElement | null;
+    const updateCameraBtnLabel = (mode: CameraMode) => {
+      if (!cameraBtn) return;
+      if (mode === 'ball') cameraBtn.textContent = 'Caméra : ⚽ Ballon';
+      else if (mode === 'player') cameraBtn.textContent = 'Caméra : 👤 Joueur';
+      else cameraBtn.textContent = 'Caméra : 🏟 Terrain';
+    };
+
+    cameraBtn?.addEventListener('click', () => {
+      const nextMode = this.renderer.toggleCameraMode();
+      updateCameraBtnLabel(nextMode);
+    });
+
     // Pause button and modal controls
     const pauseBtn = document.getElementById('btn-pause');
     pauseBtn?.addEventListener('click', () => {
@@ -81,8 +95,14 @@ class GameApp {
       this.resetGame();
     });
 
-    // Keydown handlers: Escape/P for Pause, Space/V for Replay skip
+    // Keydown handlers: Escape/P for Pause, C for Camera, Space/V for Replay skip
     window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyC') {
+        const nextMode = this.renderer.toggleCameraMode();
+        updateCameraBtnLabel(nextMode);
+        return;
+      }
+
       if (e.code === 'Escape' || e.code === 'KeyP') {
         e.preventDefault();
         this.togglePause();
@@ -166,8 +186,12 @@ class GameApp {
       }
     }
 
-    // Camera offset for accurate mouse aim
-    this.inputManager.setCameraOffset(this.renderer.getCameraOffset());
+    // Update camera offset, scale, and human player position for accurate mouse aim
+    this.inputManager.setCameraOffset(
+      this.renderer.getCameraOffset(),
+      this.renderer.getCameraScale(),
+      this.state.players[0]
+    );
 
     // Render frame (live or replay)
     this.renderer.render(

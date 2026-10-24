@@ -7,6 +7,8 @@ export class InputManager {
   private mouseBoost = false;
   private canvasElement: HTMLCanvasElement | null = null;
   private cameraOffset = { x: 0, y: 0 };
+  private cameraScale = 1;
+  private playerPos = { x: 0, y: 0 };
 
   constructor() {
     this.setupKeyboard();
@@ -17,8 +19,13 @@ export class InputManager {
     this.canvasElement = canvas;
   }
 
-  public setCameraOffset(offset: { x: number; y: number }): void {
+  public setCameraOffset(offset: { x: number; y: number }, scale = 1, playerPos?: { x: number; y: number }): void {
     this.cameraOffset = offset;
+    this.cameraScale = Math.max(0.1, scale);
+    if (playerPos) {
+      this.playerPos.x = playerPos.x;
+      this.playerPos.y = playerPos.y;
+    }
   }
 
   private setupKeyboard(): void {
@@ -68,14 +75,17 @@ export class InputManager {
       const screenX = e.clientX - rect.left;
       const screenY = e.clientY - rect.top;
 
-      // Transform to world coordinates relative to center
-      const worldX = screenX - rect.width / 2 + this.cameraOffset.x;
-      const worldY = screenY - rect.height / 2 + this.cameraOffset.y;
+      // Transform screen to world coordinates using camera offset and zoom scale
+      const worldX = (screenX - rect.width / 2) / this.cameraScale + this.cameraOffset.x;
+      const worldY = (screenY - rect.height / 2) / this.cameraScale + this.cameraOffset.y;
 
-      const len = Math.hypot(worldX, worldY);
+      // Aim vector from human player position to cursor in world space
+      const aimDx = worldX - this.playerPos.x;
+      const aimDy = worldY - this.playerPos.y;
+      const len = Math.hypot(aimDx, aimDy);
       if (len > 1e-4) {
-        this.mouseAim.x = worldX / len;
-        this.mouseAim.y = worldY / len;
+        this.mouseAim.x = aimDx / len;
+        this.mouseAim.y = aimDy / len;
       }
     });
   }

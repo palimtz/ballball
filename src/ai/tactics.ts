@@ -5,7 +5,8 @@ export type TacticalRole =
   | 'duelist'
   | 'goalkeeper'
   | 'center_back'
-  | 'winger'
+  | 'left_winger'
+  | 'right_winger'
   | 'midfielder'
   | 'striker';
 
@@ -47,15 +48,15 @@ export class TacticsManager {
 
     if (teamSize === 4) {
       if (slot === 0) return 'striker';
-      if (slot === 1) return 'winger';
-      if (slot === 2) return 'center_back';
+      if (slot === 1) return 'left_winger';
+      if (slot === 2) return 'right_winger';
       return 'goalkeeper';
     }
 
-    // 5v5
+    // 5v5: Striker, Left Winger (top), Right Winger (bottom), Center Back, Goalkeeper
     if (slot === 0) return 'striker';
-    if (slot === 1) return 'winger';
-    if (slot === 2) return 'midfielder';
+    if (slot === 1) return 'left_winger';
+    if (slot === 2) return 'right_winger';
     if (slot === 3) return 'center_back';
     return 'goalkeeper';
   }
@@ -145,10 +146,17 @@ export class TacticsManager {
         return { x: defX, y: defY };
       }
 
-      case 'winger': {
-        // Provide width on the flank, shift upfield in attack
-        const wingY = (player.id % 2 === 0 ? 1 : -1) * (halfH * 0.65);
-        const wingX = Math.max(-halfW * 0.5, Math.min(halfW * 0.8, ball.x + dir * 140));
+      case 'left_winger': {
+        // Dedicated top flank width (Y < 0)
+        const wingY = -halfH * 0.62;
+        const wingX = Math.max(-halfW * 0.45, Math.min(halfW * 0.75, ball.x + dir * 140));
+        return { x: wingX, y: wingY };
+      }
+
+      case 'right_winger': {
+        // Dedicated bottom flank width (Y > 0)
+        const wingY = halfH * 0.62;
+        const wingX = Math.max(-halfW * 0.45, Math.min(halfW * 0.75, ball.x + dir * 140));
         return { x: wingX, y: wingY };
       }
 

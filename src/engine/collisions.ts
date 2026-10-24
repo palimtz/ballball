@@ -128,10 +128,13 @@ export function resolveWallCollisions(
   // Goal cavity containment for the ball
   if (isBall && Math.abs(entity.x) > halfW) {
     const signX = Math.sign(entity.x);
-    // Absolute outer limit (allowing up to 45px elastic flex on hard shots)
-    const maxFlexX = halfW + field.depth + 45 - entity.r;
+    // Absolute outer limit (allowing up to 55px elastic flex on powerful shots)
+    const maxFlexX = halfW + field.depth + 55 - entity.r;
     if (Math.abs(entity.x) > maxFlexX) {
       entity.x = signX * maxFlexX;
+      if (entity.vx * signX > 0) {
+        entity.vx = -signX * Math.abs(entity.vx) * 0.55;
+      }
     }
     // Top and bottom horizontal frame bars of the goal
     if (Math.abs(entity.y) > halfGoal - entity.r) {

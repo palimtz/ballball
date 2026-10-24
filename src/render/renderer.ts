@@ -1,11 +1,17 @@
 import { ReplayFrame } from '../engine/replay';
 import { GameState } from '../engine/types';
 
+export type CameraMode = 'ball' | 'player' | 'court';
+
 export class GameRenderer {
   private ctx: CanvasRenderingContext2D;
   private canvas: HTMLCanvasElement;
   private cameraX = 0;
   private cameraY = 0;
+  private cameraScale = 1;
+  private cameraMode: CameraMode = 'ball';
+  private toastMessage = '';
+  private toastTimer = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -16,6 +22,41 @@ export class GameRenderer {
 
   public getCameraOffset() {
     return { x: this.cameraX, y: this.cameraY };
+  }
+
+  public getCameraScale(): number {
+    return this.cameraScale;
+  }
+
+  public getCameraMode(): CameraMode {
+    return this.cameraMode;
+  }
+
+  public setCameraMode(mode: CameraMode): void {
+    this.cameraMode = mode;
+    this.showToast(
+      mode === 'ball'
+        ? 'CAMÉRA : ⚽ BALLON'
+        : mode === 'player'
+        ? 'CAMÉRA : 👤 JOUEUR'
+        : 'CAMÉRA : 🏟 TERRAIN ENTIER'
+    );
+  }
+
+  public toggleCameraMode(): CameraMode {
+    const nextMode: CameraMode =
+      this.cameraMode === 'ball'
+        ? 'player'
+        : this.cameraMode === 'player'
+        ? 'court'
+        : 'ball';
+    this.setCameraMode(nextMode);
+    return nextMode;
+  }
+
+  public showToast(msg: string): void {
+    this.toastMessage = msg;
+    this.toastTimer = 85;
   }
 
   public resize(): void {
@@ -29,22 +70,56 @@ export class GameRenderer {
     const h = this.canvas.height;
 
     const isReplay = state.phase === 'replay' && replayFrame !== null;
-
-    // Ball to follow with camera
     const ballPos = isReplay ? replayFrame.ball : state.ball;
 
-    // Director Camera: follow ball with smooth lerp
-    // During replay: close-up tracking (1.25x zoom) keeping the goal mouth and ball centered!
-    const targetCamX = isReplay ? ballPos.x * 0.82 : ballPos.x * 0.45;
-    const targetCamY = isReplay ? ballPos.y * 0.65 : ballPos.y * 0.45;
-    this.cameraX += (targetCamX - this.cameraX) * (isReplay ? 0.14 : 0.08);
-    this.cameraY += (targetCamY - this.cameraY) * (isReplay ? 0.14 : 0.08);
-
-    // Scale to fit arena nicely on screen (with cinematic close-up zoom during replay)
     const arenaW = state.field.width + 240;
     const arenaH = state.field.height + 200;
-    const replayZoom = isReplay ? 1.25 : 1.0;
-    const scale = Math.min(w / arenaW, h / arenaH, 1.1) * replayZoom;
+
+    let targetCamX = 0;
+    let targetCamY = 0;
+    let targetScale = Math.min(w / arenaW, h / arenaH, 1.1);
+    let lerpSpeed = 0.08;
+
+    if (isReplay) {
+      // Replay: close-up tracking centered on the goal and ball
+      targetCamX = ballPos.x * 0.82;
+      targetCamY = ballPos.y * 0.65;
+      targetScale = Math.min(w / arenaW, h / arenaH, 1.1) * 1.25;
+      lerpSpeed = 0.14;
+    } else {
+      switch (this.cameraMode) {
+        case 'player': {
+          // Centered on human player (player 0)
+          const p = state.players[0];
+          targetCamX = p ? p.x : ballPos.x * 0.5;
+          targetCamY = p ? p.y : ballPos.y * 0.5;
+          targetScale = Math.min(w / arenaW, h / arenaH, 1.15) * 1.22;
+          lerpSpeed = 0.12;
+          break;
+        }
+        case 'court': {
+          // Entire pitch view: fitted without panning
+          targetCamX = 0;
+          targetCamY = 0;
+          targetScale = Math.min(w / arenaW, h / arenaH);
+          lerpSpeed = 0.16;
+          break;
+        }
+        case 'ball':
+        default: {
+          // Centered on the ball with forward lead
+          targetCamX = ballPos.x * 0.55;
+          targetCamY = ballPos.y * 0.55;
+          targetScale = Math.min(w / arenaW, h / arenaH, 1.1) * 1.05;
+          lerpSpeed = 0.09;
+          break;
+        }
+      }
+    }
+
+    this.cameraX += (targetCamX - this.cameraX) * lerpSpeed;
+    this.cameraY += (targetCamY - this.cameraY) * lerpSpeed;
+    this.cameraScale = targetScale;
 
     // Clear background
     ctx.fillStyle = '#0a1210';
@@ -53,7 +128,7 @@ export class GameRenderer {
     ctx.save();
     // Center world
     ctx.translate(w / 2, h / 2);
-    ctx.scale(scale, scale);
+    ctx.scale(this.cameraScale, this.cameraScale);
     ctx.translate(-this.cameraX, -this.cameraY);
 
     // Render field & goals
@@ -85,6 +160,30 @@ export class GameRenderer {
       } else if (state.phase === 'finished') {
         this.renderFinishedBanner(state);
       }
+    }
+
+    // Camera Mode toast banner
+    if (this.toastTimer > 0) {
+      this.toastTimer--;
+      ctx.save();
+      const toastW = 210;
+      const toastH = 34;
+      const toastX = (w - toastW) / 2;
+      const toastY = 82;
+      ctx.fillStyle = 'rgba(12, 22, 19, 0.92)';
+      ctx.beginPath();
+      ctx.roundRect(toastX, toastY, toastW, toastH, 17);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = '#39e58c';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(this.toastMessage, w / 2, toastY + toastH / 2);
+      ctx.restore();
     }
   }
 
