@@ -178,9 +178,72 @@ canvas#court {
 }
 
 .pause-card p {
-  margin: 0 0 24px 0;
+  margin: 0 0 20px 0;
   color: rgba(255, 255, 255, 0.65);
   font-size: 14px;
+}
+
+.pause-difficulty {
+  margin-bottom: 22px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.difficulty-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.difficulty-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.difficulty-btn {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.85);
+  padding: 9px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.difficulty-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.difficulty-btn.active[data-difficulty="easy"] {
+  background: rgba(57, 229, 140, 0.22);
+  border-color: #39e58c;
+  color: #39e58c;
+  box-shadow: 0 0 12px rgba(57, 229, 140, 0.35);
+}
+
+.difficulty-btn.active[data-difficulty="medium"] {
+  background: rgba(255, 193, 7, 0.22);
+  border-color: #ffc107;
+  color: #ffc107;
+  box-shadow: 0 0 12px rgba(255, 193, 7, 0.35);
+}
+
+.difficulty-btn.active[data-difficulty="hard"] {
+  background: rgba(255, 71, 87, 0.22);
+  border-color: #ff4757;
+  color: #ff4757;
+  box-shadow: 0 0 12px rgba(255, 71, 87, 0.35);
 }
 
 .pause-actions {

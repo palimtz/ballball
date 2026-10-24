@@ -31,6 +31,14 @@
         <div class="pause-card">
           <h2>MATCH EN PAUSE</h2>
           <p>La partie est temporairement suspendue</p>
+          <div class="pause-difficulty">
+            <span class="difficulty-title">Niveau de difficulté des bots :</span>
+            <div class="difficulty-buttons" role="group" aria-label="Difficulté de l'IA">
+              <button class="difficulty-btn" data-difficulty="easy">🟢 Facile</button>
+              <button class="difficulty-btn active" data-difficulty="medium">🟡 Moyen</button>
+              <button class="difficulty-btn" data-difficulty="hard">🔴 Difficile</button>
+            </div>
+          </div>
           <div class="pause-actions">
             <button id="btn-resume" class="btn-primary">Reprendre (Échap)</button>
             <button id="btn-restart-pause" class="btn-secondary">Recommencer la partie</button>

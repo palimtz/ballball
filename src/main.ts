@@ -1,5 +1,5 @@
 import './style.css';
-import { BotAI } from './ai/botController';
+import { BotAI, BotDifficulty } from './ai/botController';
 import { SoundManager } from './audio/soundManager';
 import { TICK_DT } from './engine/constants';
 import { createGameState } from './engine/gameState';
@@ -21,6 +21,7 @@ class GameApp {
   private skipReplayBtn: HTMLButtonElement | null;
   private pauseModal: HTMLElement | null;
   private isPaused = false;
+  private botAI = new BotAI('medium');
 
   constructor() {
     const canvas = document.getElementById('court') as HTMLCanvasElement;
@@ -62,6 +63,23 @@ class GameApp {
     const restartBtn = document.getElementById('btn-restart');
     restartBtn?.addEventListener('click', () => {
       this.resetGame();
+    });
+
+    // Difficulty buttons in pause modal
+    const difficultyButtons = document.querySelectorAll<HTMLButtonElement>('[data-difficulty]');
+    difficultyButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        difficultyButtons.forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        const diff = (btn.dataset.difficulty || 'medium') as BotDifficulty;
+        this.botAI.setDifficulty(diff);
+        const labels: Record<BotDifficulty, string> = {
+          easy: 'Difficulté : 🟢 Facile',
+          medium: 'Difficulté : 🟡 Moyen',
+          hard: 'Difficulté : 🔴 Difficile'
+        };
+        this.renderer.showToast(labels[diff]);
+      });
     });
 
     // Camera mode button & label
@@ -149,6 +167,7 @@ class GameApp {
   private resetGame(): void {
     this.togglePause(false);
     this.replaySystem.clearBuffer();
+    this.botAI.reset();
     if (this.skipReplayBtn) this.skipReplayBtn.hidden = true;
     this.state = createGameState(this.currentTeamSize, true);
   }
@@ -213,7 +232,7 @@ class GameApp {
     for (let i = 0; i < this.state.players.length; i++) {
       const player = this.state.players[i];
       if (this.state.bot[i]) {
-        allInputs.push(BotAI.computeInput(this.state, player));
+        allInputs.push(this.botAI.computeInput(this.state, player));
       } else {
         allInputs.push(humanInput);
       }
