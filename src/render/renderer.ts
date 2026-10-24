@@ -89,11 +89,11 @@ export class GameRenderer {
     } else {
       switch (this.cameraMode) {
         case 'player': {
-          // Centered on human player (player 0)
+          // Centered on human player (player 0) with natural 1:1 scale (no extra zoom)
           const p = state.players[0];
           targetCamX = p ? p.x : ballPos.x * 0.5;
           targetCamY = p ? p.y : ballPos.y * 0.5;
-          targetScale = Math.min(w / arenaW, h / arenaH, 1.15) * 1.22;
+          targetScale = Math.min(w / arenaW, h / arenaH, 1.1) * 1.05;
           lerpSpeed = 0.12;
           break;
         }

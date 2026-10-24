@@ -7,7 +7,7 @@ import {
   TICK_DT
 } from './constants';
 import { resolveCircleCollision, resolveWallCollisions } from './collisions';
-import { clampLength, integrateBallQuaternion, normalizeVec, vecLength } from './math';
+import { clampSpeed, integrateBallQuaternion, normalizeVec, vecLength } from './math';
 import { applyMagnusCurvature, calculateKickSpin } from './spin';
 import { getPlayerSpawn } from './stadium';
 import { GameState, NetNode, Player, PlayerInput } from './types';
@@ -81,8 +81,8 @@ export function updatePlayerMovement(
   player.vx = (player.vx + inX * effectiveAccel * TICK_DT) * Math.exp(-drag * TICK_DT);
   player.vy = (player.vy + inY * effectiveAccel * TICK_DT) * Math.exp(-drag * TICK_DT);
 
-  // Clamp player to top speed
-  clampLength(player, PHYSICS_CONFIG.playerMaxSpeed);
+  // Clamp player velocity to top speed (clamp vx/vy, never position x/y!)
+  clampSpeed(player, PHYSICS_CONFIG.playerMaxSpeed);
 }
 
 /**
@@ -228,7 +228,7 @@ export function simulateTick(state: GameState, inputs: PlayerInput[]): void {
   applyMagnusCurvature(state.ball, TICK_DT);
   state.ball.vx *= Math.exp(-PHYSICS_CONFIG.ballDrag * TICK_DT);
   state.ball.vy *= Math.exp(-PHYSICS_CONFIG.ballDrag * TICK_DT);
-  clampLength(state.ball, PHYSICS_CONFIG.ballMaxSpeed);
+  clampSpeed(state.ball, PHYSICS_CONFIG.ballMaxSpeed);
 
   if (vecLength(state.ball.vx, state.ball.vy) < PHYSICS_CONFIG.ballStopSpeed) {
     state.ball.vx = 0;

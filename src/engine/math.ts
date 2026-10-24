@@ -23,6 +23,15 @@ export function clampLength(vec: Vector2D, maxLen: number): void {
   }
 }
 
+export function clampSpeed(entity: { vx: number; vy: number }, maxSpeed: number): void {
+  const speed = Math.hypot(entity.vx, entity.vy);
+  if (speed > maxSpeed && speed > 1e-6) {
+    const scale = maxSpeed / speed;
+    entity.vx *= scale;
+    entity.vy *= scale;
+  }
+}
+
 /**
  * 3D Quaternion rotation integration for realistic ball roll & spin
  */
