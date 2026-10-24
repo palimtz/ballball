@@ -125,6 +125,22 @@ export function resolveWallCollisions(
     applyWallBounce(state, entity, isBall, restitution, sign, 0);
   }
 
+  // Goal net cavity containment for the ball
+  if (isBall && Math.abs(entity.x) > halfW) {
+    const signX = Math.sign(entity.x);
+    const maxNetX = halfW + field.depth + 14 - entity.r;
+    if (Math.abs(entity.x) > maxNetX) {
+      entity.x = signX * maxNetX;
+      entity.vx *= -0.15; // heavily absorbed by net fabric
+      entity.vy *= 0.7;
+    }
+    if (Math.abs(entity.y) > halfGoal - entity.r) {
+      const signY = Math.sign(entity.y);
+      entity.y = signY * (halfGoal - entity.r);
+      entity.vy *= -0.25;
+    }
+  }
+
   // 4 Rounded corners of the court (radius = field.corner = 60)
   const cornerX = halfW - field.corner;
   const cornerY = halfH - field.corner;
@@ -227,8 +243,9 @@ function checkGoalScore(state: GameState, field: StadiumField): void {
 function triggerGoal(state: GameState, scoringTeam: 0 | 1): void {
   state.score[scoringTeam]++;
   state.scorer = scoringTeam;
+  state.goalTick = state.tick;
   state.phase = 'goal';
-  state.phaseTicks = MATCH_RULES.celebration; // 1.5s active celebration
+  state.phaseTicks = MATCH_RULES.celebration; // 2.5s active celebration
   state.events.push({
     type: 'goal',
     x: state.ball.x,

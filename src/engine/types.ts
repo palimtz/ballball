@@ -59,6 +59,20 @@ export interface StadiumField {
   corner: number; // Rounded corner radius
 }
 
+export interface NetNode {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  baseX: number;
+  baseY: number;
+}
+
+export interface GoalNets {
+  left: NetNode[];
+  right: NetNode[];
+}
+
 export type GamePhase = 'countdown' | 'playing' | 'goal' | 'replay' | 'finished';
 
 export interface GameEvent {
@@ -77,9 +91,11 @@ export interface GameState {
   teamSize: number; // 1, 2, 3, 4, or 5
   score: [number, number];
   scorer: Team;
+  goalTick: number; // Tick when the most recent goal was scored (-1 if none)
   field: StadiumField;
   players: Player[];
   ball: Ball;
+  nets: GoalNets; // Interactive physics nets for both goals
   bot: boolean[]; // whether player id is AI controlled
   active: boolean[]; // whether player slot is active in match
   events: GameEvent[]; // events emitted in current tick (audio / VFX)

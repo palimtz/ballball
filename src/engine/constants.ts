@@ -7,7 +7,7 @@ export const MATCH_RULES = {
   duration1v1: 90 * TICKS_PER_SECOND, // 90s
   durationTeam: 180 * TICKS_PER_SECOND, // 180s
   countdown: 240, // 2s before kickoff
-  celebration: 240, // 2.0s post-goal celebration before replay
+  celebration: 300, // 2.5s post-goal celebration before replay
   replay: 600, // 5s max replay
   winScore: 5,
   boostCapacity: 3,

@@ -26,6 +26,10 @@ export interface ReplayFrame {
     orientation: Quaternion;
   };
   players: RecordedPlayerState[];
+  nets?: {
+    left: { x: number; y: number }[];
+    right: { x: number; y: number }[];
+  };
 }
 
 export interface GoalClip {
@@ -71,7 +75,13 @@ export class ReplaySystem {
         burst: p.burst,
         signal: p.signal,
         charges: p.charges
-      }))
+      })),
+      nets: state.nets
+        ? {
+            left: state.nets.left.map((n) => ({ x: n.x, y: n.y })),
+            right: state.nets.right.map((n) => ({ x: n.x, y: n.y }))
+          }
+        : undefined
     };
 
     this.ringBuffer.push(frame);
@@ -81,11 +91,28 @@ export class ReplaySystem {
   }
 
   /**
-   * Captures the recent action leading to the goal as a replay clip.
-   * Extracts ~360 frames (3 seconds of gameplay).
+   * Captures the action leading to the goal as a replay clip.
+   * If goalTick is provided, it extracts ~280 frames before the goal and ~65 frames after,
+   * keeping the focus primarily on the build-up, shot, curve, and net impact,
+   * rather than excessive post-goal celebration.
    */
-  public captureGoalClip(scorerTeam: Team, lastTouchPlayerId: number): void {
-    const clipFrames = this.ringBuffer.slice(-360);
+  public captureGoalClip(scorerTeam: Team, lastTouchPlayerId: number, goalTick?: number): void {
+    if (this.ringBuffer.length === 0) return;
+
+    let clipFrames: ReplayFrame[];
+    if (goalTick !== undefined && goalTick > 0) {
+      const goalIdx = this.ringBuffer.findIndex((f) => f.tick >= goalTick);
+      if (goalIdx !== -1) {
+        const startIdx = Math.max(0, goalIdx - 280);
+        const endIdx = Math.min(this.ringBuffer.length, goalIdx + 65);
+        clipFrames = this.ringBuffer.slice(startIdx, endIdx);
+      } else {
+        clipFrames = this.ringBuffer.slice(-340);
+      }
+    } else {
+      clipFrames = this.ringBuffer.slice(-340);
+    }
+
     if (clipFrames.length === 0) return;
 
     this.activeClip = {
@@ -127,21 +154,19 @@ export class ReplaySystem {
    * - 80% to 100%: Smooth transition out as the ball rests in the net (0.75x)
    */
   public getSpeedAtProgress(progress: number): number {
-    if (progress < 0.35) {
+    if (progress < 0.40) {
       return 0.95; // Fluid build-up
-    } else if (progress < 0.45) {
-      // Ease down into slow-motion
-      const t = (progress - 0.35) / 0.10;
+    } else if (progress < 0.52) {
+      // Ease down into slow-motion before the strike
+      const t = (progress - 0.40) / 0.12;
       return 0.95 - t * (0.95 - 0.48);
-    } else if (progress < 0.80) {
-      // Slow-motion highlight of the shot, curve, and net hit
+    } else if (progress < 0.85) {
+      // Slow-motion highlight of the shot, curve, and net ripple
       return 0.48;
-    } else if (progress < 0.92) {
-      // Ease out of slow-motion
-      const t = (progress - 0.80) / 0.12;
-      return 0.48 + t * (0.75 - 0.48);
     } else {
-      return 0.75;
+      // Settle as the ball rests in the net
+      const t = (progress - 0.85) / 0.15;
+      return 0.48 + t * (0.75 - 0.48);
     }
   }
 

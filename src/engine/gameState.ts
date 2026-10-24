@@ -1,6 +1,45 @@
 import { MATCH_RULES, PHYSICS_CONFIG } from './constants';
 import { getPlayerSpawn, getStadiumField } from './stadium';
-import { GameState, Player, Team } from './types';
+import { GameState, GoalNets, NetNode, Player, StadiumField, Team } from './types';
+
+export function createGoalNets(field: StadiumField): GoalNets {
+  const halfW = field.width / 2;
+  const halfGoal = field.goal / 2;
+  const depth = field.depth;
+  const nodeCount = 9;
+
+  const leftNodes: NetNode[] = [];
+  const rightNodes: NetNode[] = [];
+
+  for (let i = 0; i < nodeCount; i++) {
+    const frac = i / (nodeCount - 1);
+    const y = -halfGoal + frac * (2 * halfGoal);
+
+    // Left net back line
+    const leftX = -halfW - depth;
+    leftNodes.push({
+      x: leftX,
+      y,
+      vx: 0,
+      vy: 0,
+      baseX: leftX,
+      baseY: y
+    });
+
+    // Right net back line
+    const rightX = halfW + depth;
+    rightNodes.push({
+      x: rightX,
+      y,
+      vx: 0,
+      vy: 0,
+      baseX: rightX,
+      baseY: y
+    });
+  }
+
+  return { left: leftNodes, right: rightNodes };
+}
 
 export function createInitialPlayer(
   id: number,
@@ -56,8 +95,10 @@ export function createGameState(teamSize = 1, isSoloWithBot = true): GameState {
     teamSize,
     score: [0, 0],
     scorer: 0,
+    goalTick: -1,
     field,
     players,
+    nets: createGoalNets(field),
     ball: {
       x: 0,
       y: 0,

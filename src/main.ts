@@ -158,11 +158,11 @@ class GameApp {
 
     // Capture the replay clip on the last tick of celebration, right before replay starts
     if (this.state.phase === 'goal' && this.state.phaseTicks === 1) {
-      this.replaySystem.captureGoalClip(this.state.scorer, this.state.lastTouch);
+      this.replaySystem.captureGoalClip(this.state.scorer, this.state.lastTouch, this.state.goalTick);
     }
     // Fallback if replay phase triggered directly
     if (this.state.phase === 'replay' && !this.replaySystem.isReplaying()) {
-      this.replaySystem.captureGoalClip(this.state.scorer, this.state.lastTouch);
+      this.replaySystem.captureGoalClip(this.state.scorer, this.state.lastTouch, this.state.goalTick);
     }
 
     // 3. Step physics simulation at 120 Hz

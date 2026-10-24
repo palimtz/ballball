@@ -10,7 +10,7 @@ import { resolveCircleCollision, resolveWallCollisions } from './collisions';
 import { clampLength, integrateBallQuaternion, normalizeVec, vecLength } from './math';
 import { applyMagnusCurvature, calculateKickSpin } from './spin';
 import { getPlayerSpawn } from './stadium';
-import { GameState, Player, PlayerInput } from './types';
+import { GameState, NetNode, Player, PlayerInput } from './types';
 
 /**
  * Updates player acceleration, boost activation, aim direction, and drag.
@@ -116,6 +116,7 @@ export function simulateTick(state: GameState, inputs: PlayerInput[]): void {
         side: 0
       });
     }
+    updateNetPhysics(state);
     return;
   }
 
@@ -147,6 +148,8 @@ export function simulateTick(state: GameState, inputs: PlayerInput[]): void {
       }
       resolveWallCollisions(state, state.ball, true);
     }
+
+    updateNetPhysics(state);
 
     if (--state.phaseTicks <= 0) {
       state.phase = 'replay';
@@ -296,6 +299,9 @@ export function simulateTick(state: GameState, inputs: PlayerInput[]): void {
     state.ball.r,
     TICK_DT
   );
+
+  // Dynamic goal net simulation
+  updateNetPhysics(state);
 }
 
 /**
@@ -418,5 +424,114 @@ export function resetForKickoff(state: GameState): void {
     player.burst = 0;
     player.signal = 0;
     player.crowded = 0;
+  }
+
+  // Reset interactive goal nets to rest positions
+  if (state.nets) {
+    for (const node of state.nets.left) {
+      node.x = node.baseX;
+      node.y = node.baseY;
+      node.vx = 0;
+      node.vy = 0;
+    }
+    for (const node of state.nets.right) {
+      node.x = node.baseX;
+      node.y = node.baseY;
+      node.vx = 0;
+      node.vy = 0;
+    }
+  }
+}
+
+/**
+ * Updates dynamic goal net simulation with spring-mass tension, damping, and ball interaction.
+ */
+export function updateNetPhysics(state: GameState): void {
+  const nets = state.nets;
+  if (!nets) return;
+
+  const ball = state.ball;
+  const field = state.field;
+  const halfW = field.width / 2;
+  const halfGoal = field.goal / 2;
+  const depth = field.depth;
+
+  const dt = TICK_DT;
+  const springK = 420;
+  const neighborK = 240;
+  const damping = 0.88;
+
+  const netSides: Array<{ nodes: NetNode[]; sign: number }> = [
+    { nodes: nets.left, sign: -1 },
+    { nodes: nets.right, sign: 1 }
+  ];
+
+  for (const { nodes, sign } of netSides) {
+    const count = nodes.length;
+
+    // 1. Spring tension returning to resting base position + neighbor coupling
+    for (let i = 0; i < count; i++) {
+      const node = nodes[i];
+      let fx = (node.baseX - node.x) * springK;
+      let fy = (node.baseY - node.y) * springK;
+
+      if (i > 0) {
+        const prev = nodes[i - 1];
+        fx += (prev.x - node.x) * neighborK;
+        fy += (prev.y - node.y) * neighborK;
+      }
+      if (i < count - 1) {
+        const next = nodes[i + 1];
+        fx += (next.x - node.x) * neighborK;
+        fy += (next.y - node.y) * neighborK;
+      }
+
+      node.vx = (node.vx + fx * dt) * damping;
+      node.vy = (node.vy + fy * dt) * damping;
+
+      node.x += node.vx * dt;
+      node.y += node.vy * dt;
+    }
+
+    // 2. Ball vs Net interaction
+    const isNearGoal =
+      sign * ball.x > halfW - ball.r &&
+      Math.abs(ball.y) < halfGoal + ball.r;
+
+    if (isNearGoal) {
+      const backDist = sign * (ball.x - (sign * (halfW + depth)));
+      if (backDist > -ball.r * 1.5) {
+        for (let i = 0; i < count; i++) {
+          const node = nodes[i];
+          const distY = Math.abs(node.y - ball.y);
+          const reach = ball.r * 3.0;
+
+          if (distY < reach) {
+            const influence = Math.cos((distY / reach) * (Math.PI / 2));
+            const pushX = Math.max(0, backDist + ball.r) * 1.3;
+
+            // Displace net node outward
+            node.x = node.baseX + sign * (pushX * influence);
+            node.vx += sign * Math.abs(ball.vx) * influence * 0.5;
+            node.vy += ball.vy * influence * 0.25;
+
+            // Absorb ball velocity
+            ball.vx *= (1 - 0.15 * influence);
+            ball.vy *= (1 - 0.12 * influence);
+          }
+        }
+      }
+
+      // Inside net cavity: strong friction and settle
+      if (sign * ball.x > halfW) {
+        ball.vx *= Math.exp(-6.5 * dt);
+        ball.vy *= Math.exp(-6.5 * dt);
+
+        if (Math.hypot(ball.vx, ball.vy) < 10) {
+          ball.vx = 0;
+          ball.vy = 0;
+        }
+      }
+    }
   }
 }

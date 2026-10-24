@@ -34,15 +34,17 @@ export class GameRenderer {
     const ballPos = isReplay ? replayFrame.ball : state.ball;
 
     // Director Camera: follow ball with smooth lerp
-    const targetCamX = ballPos.x * 0.45;
-    const targetCamY = ballPos.y * 0.45;
-    this.cameraX += (targetCamX - this.cameraX) * (isReplay ? 0.12 : 0.08);
-    this.cameraY += (targetCamY - this.cameraY) * (isReplay ? 0.12 : 0.08);
+    // During replay: close-up tracking (1.25x zoom) keeping the goal mouth and ball centered!
+    const targetCamX = isReplay ? ballPos.x * 0.82 : ballPos.x * 0.45;
+    const targetCamY = isReplay ? ballPos.y * 0.65 : ballPos.y * 0.45;
+    this.cameraX += (targetCamX - this.cameraX) * (isReplay ? 0.14 : 0.08);
+    this.cameraY += (targetCamY - this.cameraY) * (isReplay ? 0.14 : 0.08);
 
-    // Scale to fit arena nicely on screen
+    // Scale to fit arena nicely on screen (with cinematic close-up zoom during replay)
     const arenaW = state.field.width + 240;
     const arenaH = state.field.height + 200;
-    const scale = Math.min(w / arenaW, h / arenaH, 1.1);
+    const replayZoom = isReplay ? 1.25 : 1.0;
+    const scale = Math.min(w / arenaW, h / arenaH, 1.1) * replayZoom;
 
     // Clear background
     ctx.fillStyle = '#0a1210';
@@ -56,7 +58,7 @@ export class GameRenderer {
 
     // Render field & goals
     this.renderCourt(state);
-    this.renderGoals(state);
+    this.renderGoals(state, replayFrame);
 
     if (isReplay) {
       // Render recorded entities
@@ -141,29 +143,28 @@ export class GameRenderer {
     ctx.restore();
   }
 
-  private renderGoals(state: GameState): void {
+  private renderGoals(state: GameState, replayFrame: ReplayFrame | null = null): void {
     const ctx = this.ctx;
     const field = state.field;
     const halfW = field.width / 2;
     const halfGoal = field.goal / 2;
     const depth = field.depth;
 
+    const leftNodes = replayFrame?.nets?.left ?? state.nets?.left;
+    const rightNodes = replayFrame?.nets?.right ?? state.nets?.right;
+
     ctx.save();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
 
-    // Left Goal Cavity (Net)
-    ctx.fillStyle = 'rgba(189, 172, 255, 0.08)'; // Team Lilac tint
-    ctx.fillRect(-halfW - depth, -halfGoal, depth, field.goal);
-    ctx.strokeRect(-halfW - depth, -halfGoal, depth, field.goal);
+    // Render Left Goal Net (Lilas)
+    this.drawGoalNet(ctx, -1, halfW, halfGoal, depth, leftNodes, '#bdacff');
 
-    // Right Goal Cavity (Net)
-    ctx.fillStyle = 'rgba(255, 161, 136, 0.08)'; // Team Coral tint
-    ctx.fillRect(halfW, -halfGoal, depth, field.goal);
-    ctx.strokeRect(halfW, -halfGoal, depth, field.goal);
+    // Render Right Goal Net (Coral)
+    this.drawGoalNet(ctx, 1, halfW, halfGoal, depth, rightNodes, '#ffa188');
 
-    // 4 Goal Posts
+    // 4 Rigid Goal Posts (left-top, left-bottom, right-top, right-bottom)
     ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+    ctx.shadowBlur = 4;
     const posts = [
       { x: -halfW, y: -halfGoal },
       { x: -halfW, y: halfGoal },
@@ -177,6 +178,96 @@ export class GameRenderer {
     }
 
     ctx.restore();
+  }
+
+  private drawGoalNet(
+    ctx: CanvasRenderingContext2D,
+    sign: number, // -1 for left, 1 for right
+    halfW: number,
+    halfGoal: number,
+    depth: number,
+    nodes: Array<{ x: number; y: number }> | undefined,
+    teamColor: string
+  ): void {
+    const postX = sign * halfW;
+    const topY = -halfGoal;
+    const bottomY = halfGoal;
+
+    // Fallback if nodes not yet initialized
+    let activeNodes = nodes;
+    if (!activeNodes || activeNodes.length === 0) {
+      const fallback = [];
+      for (let i = 0; i < 9; i++) {
+        const frac = i / 8;
+        fallback.push({
+          x: sign * (halfW + depth),
+          y: topY + frac * (bottomY - topY)
+        });
+      }
+      activeNodes = fallback;
+    }
+
+    const count = activeNodes.length;
+
+    // 1. Fill net polygon area
+    ctx.beginPath();
+    ctx.moveTo(postX, topY);
+    for (let i = 0; i < count; i++) {
+      ctx.lineTo(activeNodes[i].x, activeNodes[i].y);
+    }
+    ctx.lineTo(postX, bottomY);
+    ctx.closePath();
+
+    ctx.fillStyle = sign === -1 ? 'rgba(189, 172, 255, 0.10)' : 'rgba(255, 161, 136, 0.10)';
+    ctx.fill();
+
+    // 2. Net crosshatch grid cords (horizontal lines)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+    ctx.lineWidth = 1;
+
+    ctx.beginPath();
+    for (let i = 1; i < count - 1; i++) {
+      ctx.moveTo(postX, activeNodes[i].y);
+      ctx.lineTo(activeNodes[i].x, activeNodes[i].y);
+    }
+    ctx.stroke();
+
+    // Vertical depth cords (4 intermediate cords bending dynamically with net bulge)
+    ctx.beginPath();
+    const cols = 4;
+    for (let c = 1; c <= cols; c++) {
+      const frac = c / (cols + 1);
+      ctx.moveTo(postX * (1 - frac) + activeNodes[0].x * frac, topY);
+      for (let i = 0; i < count; i++) {
+        const x = postX * (1 - frac) + activeNodes[i].x * frac;
+        ctx.lineTo(x, activeNodes[i].y);
+      }
+      ctx.lineTo(postX * (1 - frac) + activeNodes[count - 1].x * frac, bottomY);
+    }
+    ctx.stroke();
+
+    // 3. Goal frame lines and back net rope
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    // Top side bar
+    ctx.moveTo(postX, topY);
+    ctx.lineTo(activeNodes[0].x, activeNodes[0].y);
+    // Back flexible rope
+    for (let i = 1; i < count; i++) {
+      ctx.lineTo(activeNodes[i].x, activeNodes[i].y);
+    }
+    // Bottom side bar
+    ctx.lineTo(postX, bottomY);
+    ctx.stroke();
+
+    // Goal line threshold (subtle opening line)
+    ctx.strokeStyle = teamColor;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(postX, topY);
+    ctx.lineTo(postX, bottomY);
+    ctx.stroke();
   }
 
   private renderPlayers(state: GameState): void {
